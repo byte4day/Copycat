@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pricing · Northwind Ledger</title>
+  <!-- Reconstruction of tests/fixtures/site/pricing.html built from Copycat
+       inspection artifacts only (tokens, DOM geometry, interaction matrix).
+       Independently written markup, styles and behaviour. -->
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="layout.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar__inner">
+      <a class="brand" href="#">Northwind Ledger</a>
+      <button class="topbar__menu" type="button" aria-expanded="false" aria-controls="primary-nav">Menu</button>
+      <nav class="primary" id="primary-nav" aria-label="Main">
+        <div class="primary__group">
+          <button class="primary__item primary__trigger" type="button" aria-expanded="false" aria-haspopup="true" aria-controls="product-list">Products</button>
+          <ul class="flyout" id="product-list" hidden>
+            <li><a href="#">Ledger dashboard</a></li>
+            <li><a href="#invoicing">Invoicing</a></li>
+            <li><a href="#reports">Reports</a></li>
+          </ul>
+        </div>
+        <a class="primary__item" href="#">Pricing</a>
+        <a class="primary__item" href="#">Dashboard</a>
+        <a class="primary__item primary__item--cta" href="#">Start free</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <h1 class="page-title">Pricing</h1>
+    <p class="page-lede">Simple plans. Cancel any time.</p>
+
+    <div class="period" role="tablist" aria-label="Billing period">
+      <button class="period__tab" role="tab" type="button" aria-selected="true" data-period="month">Monthly</button>
+      <button class="period__tab" role="tab" type="button" aria-selected="false" data-period="year">Yearly</button>
+    </div>
+
+    <div class="tiers">
+      <section class="tier" id="invoicing">
+        <h2 class="tier__name">Starter</h2>
+        <div class="tier__price"><span class="tier__amount" data-month="$12" data-year="$120">$12</span> <small class="tier__per">/ month</small></div>
+        <ul class="tier__features"><li>1 user</li><li>Bank sync</li><li>Invoicing</li></ul>
+        <a class="btn btn--quiet" href="#">Choose Starter</a>
+      </section>
+      <section class="tier tier--highlight">
+        <h2 class="tier__name">Team</h2>
+        <div class="tier__price"><span class="tier__amount" data-month="$39" data-year="$390">$39</span> <small class="tier__per">/ month</small></div>
+        <ul class="tier__features"><li>5 users</li><li>Approvals</li><li>Reports</li></ul>
+        <a class="btn" href="#">Choose Team</a>
+      </section>
+      <section class="tier" id="reports">
+        <h2 class="tier__name">Firm</h2>
+        <div class="tier__price"><span class="tier__amount" data-month="$99" data-year="$990">$99</span> <small class="tier__per">/ month</small></div>
+        <ul class="tier__features"><li>Unlimited users</li><li>Audit trail</li><li>Priority support</li></ul>
+        <button class="btn btn--quiet" type="button" data-dialog-open="sales-dialog" aria-controls="sales-dialog">Contact sales</button>
+      </section>
+    </div>
+
+    <div class="overlay" id="sales-dialog" hidden>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="sales-title">
+        <h2 id="sales-title">Talk to sales</h2>
+        <p>We will reply within one business day.</p>
+        <button class="btn" type="button" data-dialog-close>Close</button>
+      </div>
+    </div>
+  </main>
+
+  <footer class="colophon">
+    <div class="shell colophon__inner">
+      <span>&copy; 2026 Northwind Ledger (fictional test fixture)</span>
+      <span><a href="#">Pricing</a> · <a href="#">Sign up</a></span>
+    </div>
+  </footer>
+  <script src="behaviour.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+/* Tokens measured by `copycat inspect` (design-tokens.json). */
+:root {
+  --c-text: #1f2933;
+  --c-text-muted: #5f6b7a;
+  --c-border: #d9dee5;
+  --c-surface: #ffffff;
+  --c-accent: #0f6e5c;
+  --c-accent-hover: #0b5a4b;
+  --c-on-accent: #ffffff;
+  --font-body: Georgia, "Times New Roman", serif;
+  --radius-control: 6px;
+  --radius-inner: 4px;
+  --shell-max: 1120px;
+  --shell-pad: 24px;
+  --topbar-h: 64px;
+}

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pricing · Northwind Ledger</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="container">
+    <a class="logo" href="index.html">Northwind Ledger</a>
+    <button class="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
+    <nav id="site-nav" class="nav" aria-label="Main">
+      <div class="dropdown">
+        <button class="nav-trigger" aria-expanded="false" aria-haspopup="true" aria-controls="products-menu">Products</button>
+        <ul id="products-menu" class="dropdown-menu" hidden>
+          <li><a href="dashboard.html">Ledger dashboard</a></li>
+          <li><a href="pricing.html#invoicing">Invoicing</a></li>
+          <li><a href="pricing.html#reports">Reports</a></li>
+        </ul>
+      </div>
+      <a href="pricing.html">Pricing</a>
+      <a href="dashboard.html">Dashboard</a>
+      <a class="cta" href="signup.html">Start free</a>
+    </nav>
+  </div>
+</header>
+<main class="container">
+  <h1 style="margin:48px 0 4px">Pricing</h1>
+  <p style="color:#5f6b7a;margin:0">Simple plans. Cancel any time.</p>
+  <div class="tabs" role="tablist" aria-label="Billing period">
+    <button role="tab" aria-selected="true" data-period="monthly">Monthly</button>
+    <button role="tab" aria-selected="false" data-period="yearly">Yearly</button>
+  </div>
+  <div class="plans">
+    <section class="plan" id="invoicing"><h2>Starter</h2><div class="price"><span data-monthly="$12" data-yearly="$120">$12</span> <small class="per">/ month</small></div><ul><li>1 user</li><li>Bank sync</li><li>Invoicing</li></ul><a class="button secondary" href="signup.html">Choose Starter</a></section>
+    <section class="plan featured"><h2>Team</h2><div class="price"><span data-monthly="$39" data-yearly="$390">$39</span> <small class="per">/ month</small></div><ul><li>5 users</li><li>Approvals</li><li>Reports</li></ul><a class="button" href="signup.html">Choose Team</a></section>
+    <section class="plan" id="reports"><h2>Firm</h2><div class="price"><span data-monthly="$99" data-yearly="$990">$99</span> <small class="per">/ month</small></div><ul><li>Unlimited users</li><li>Audit trail</li><li>Priority support</li></ul><button class="button secondary" data-open-modal aria-controls="contact-modal">Contact sales</button></section>
+  </div>
+  <div id="contact-modal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h2 id="modal-title">Talk to sales</h2>
+      <p>We will reply within one business day.</p>
+      <button class="button close">Close</button>
+    </div>
+  </div>
+</main>
+<footer class="site-footer">
+  <div class="container">
+    <span>&copy; 2026 Northwind Ledger (fictional test fixture)</span>
+    <span><a href="pricing.html">Pricing</a> · <a href="signup.html">Sign up</a></span>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

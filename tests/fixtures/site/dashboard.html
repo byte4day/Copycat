@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard · Northwind Ledger</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="container">
+    <a class="logo" href="index.html">Northwind Ledger</a>
+    <button class="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
+    <nav id="site-nav" class="nav" aria-label="Main">
+      <div class="dropdown">
+        <button class="nav-trigger" aria-expanded="false" aria-haspopup="true" aria-controls="products-menu">Products</button>
+        <ul id="products-menu" class="dropdown-menu" hidden>
+          <li><a href="dashboard.html">Ledger dashboard</a></li>
+          <li><a href="pricing.html#invoicing">Invoicing</a></li>
+          <li><a href="pricing.html#reports">Reports</a></li>
+        </ul>
+      </div>
+      <a href="pricing.html">Pricing</a>
+      <a href="dashboard.html">Dashboard</a>
+      <a class="cta" href="signup.html">Start free</a>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+  <aside class="sidebar" aria-label="Workspace">
+    <button class="button secondary" data-collapse aria-expanded="true" style="margin-bottom:12px">Collapse</button>
+    <a href="dashboard.html" aria-current="page"><span aria-hidden="true">▣</span> <span class="label">Overview</span></a>
+    <a href="#bills"><span aria-hidden="true">◧</span> <span class="label">Bills</span></a>
+    <a href="#invoices"><span aria-hidden="true">◨</span> <span class="label">Invoices</span></a>
+    <a href="#reports"><span aria-hidden="true">◩</span> <span class="label">Reports</span></a>
+  </aside>
+  <main class="content">
+    <h1 style="margin:0">Overview</h1>
+    <div class="filters" role="group" aria-label="Filter invoices">
+      <button data-filter="all" aria-pressed="true">All</button>
+      <button data-filter="paid" aria-pressed="false">Paid</button>
+      <button data-filter="overdue" aria-pressed="false">Overdue</button>
+    </div>
+    <table>
+      <thead><tr><th>Invoice</th><th>Customer</th><th>Status</th><th>Amount</th></tr></thead>
+      <tbody>
+        <tr data-status="paid"><td>INV-1001</td><td>Harbor Supply</td><td>Paid</td><td>$1,200.00</td></tr>
+        <tr data-status="overdue"><td>INV-1002</td><td>Elm Street Cafe</td><td>Overdue</td><td>$310.50</td></tr>
+        <tr data-status="paid"><td>INV-1003</td><td>Copperline</td><td>Paid</td><td>$4,050.00</td></tr>
+        <tr data-status="overdue"><td>INV-1004</td><td>North Pier</td><td>Overdue</td><td>$95.00</td></tr>
+      </tbody>
+    </table>
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign up · Northwind Ledger</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="container">
+    <a class="logo" href="index.html">Northwind Ledger</a>
+    <button class="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
+    <nav id="site-nav" class="nav" aria-label="Main">
+      <div class="dropdown">
+        <button class="nav-trigger" aria-expanded="false" aria-haspopup="true" aria-controls="products-menu">Products</button>
+        <ul id="products-menu" class="dropdown-menu" hidden>
+          <li><a href="dashboard.html">Ledger dashboard</a></li>
+          <li><a href="pricing.html#invoicing">Invoicing</a></li>
+          <li><a href="pricing.html#reports">Reports</a></li>
+        </ul>
+      </div>
+      <a href="pricing.html">Pricing</a>
+      <a href="dashboard.html">Dashboard</a>
+      <a class="cta" href="signup.html">Start free</a>
+    </nav>
+  </div>
+</header>
+<main class="container">
+  <h1 style="margin:48px 0 0">Create your workspace</h1>
+  <form id="signup-form" class="form" novalidate>
+    <div class="field"><label for="name">Full name</label><input id="name" name="name" autocomplete="name"><div id="name-error" class="error" role="alert"></div></div>
+    <div class="field"><label for="email">Work email</label><input id="email" name="email" type="email" autocomplete="email"><div id="email-error" class="error" role="alert"></div></div>
+    <div class="field"><label for="team">Team size</label><select id="team" name="team"><option value="">Choose…</option><option>1–5</option><option>6–20</option><option>21+</option></select><div id="team-error" class="error" role="alert"></div></div>
+    <button class="button" type="submit">Create workspace</button>
+  </form>
+  <p id="signup-success" class="success" hidden>Workspace created. This is a local demo; nothing was sent.</p>
+</main>
+<footer class="site-footer">
+  <div class="container">
+    <span>&copy; 2026 Northwind Ledger (fictional test fixture)</span>
+    <span><a href="pricing.html">Pricing</a> · <a href="signup.html">Sign up</a></span>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
