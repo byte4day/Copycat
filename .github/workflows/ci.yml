@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npm run typecheck
+      - name: Validate skill and agent files
+        run: node scripts/verify.mjs --source
+      - name: Unit tests (installer, scope, redaction, image diff, reports)
+        run: npm test
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Integration tests (real browser against fixtures)
+        run: npm run test:integration
+      - name: Installer smoke test (sandbox home)
+        run: |
+          H="$(mktemp -d)"; mkdir -p "$H/.claude" "$H/.codex" "$H/.cursor" "$H/.gemini"
+          node scripts/install.mjs --all --global --home "$H" --dry-run
+          node scripts/install.mjs --all --global --home "$H" --runtime "$PWD"
+          node scripts/verify.mjs --all --global --home "$H" --browser
+          node scripts/uninstall.mjs --all --global --home "$H"

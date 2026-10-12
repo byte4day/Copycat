@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t">
+  <title id="t">Copycat</title>
+  <rect width="64" height="64" rx="14" fill="#FAFAF7"/>
+  <!-- the copy: same silhouette, offset like a duplicated window -->
+  <g transform="translate(1.5 3)">
+  <path fill="#E58C55" transform="translate(9 -6)" d="M6 30 8.6 14.2Q9.4 10 13 12.2L20 19H32L39 12.2Q42.6 10 43.4 14.2L46 30V44Q46 56 34 56H18Q6 56 6 44Z"/>
+  <!-- the cat -->
+  <path fill="#171717" stroke="#FAFAF7" stroke-width="3" stroke-linejoin="round" paint-order="stroke" d="M6 30 8.6 14.2Q9.4 10 13 12.2L20 19H32L39 12.2Q42.6 10 43.4 14.2L46 30V44Q46 56 34 56H18Q6 56 6 44Z"/>
+  <path fill="#FAFAF7" d="M13.5 36h9a4.5 4.5 0 0 1-9 0ZM29.5 36h9a4.5 4.5 0 0 1-9 0Z"/>
+  <path fill="#E58C55" stroke="#E58C55" stroke-width="1.5" stroke-linejoin="round" d="M24 45.2h4l-2 2.4Z"/>
+  </g>
+</svg>
