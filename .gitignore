@@ -1,0 +1,12 @@
+node_modules/
+# Copycat run artifacts: screenshots and captures of reference pages stay local.
+.copycat/
+# Local runtime config written by the installer
+.agents/skills/copycat/scripts/runtime.json
+# Test output
+test-results/
+coverage/
+*.log
+.DS_Store
+.env
+.env.*

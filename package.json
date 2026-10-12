@@ -1,0 +1,44 @@
+{
+  "name": "copycat-skill",
+  "version": "0.1.0",
+  "description": "An AI agent skill for inspecting and reconstructing website UI, UX and interactions across Claude Code, Codex, Cursor and Antigravity.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "copycat": "bin/copycat.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src",
+    ".agents",
+    "agents",
+    "scripts"
+  ],
+  "scripts": {
+    "copycat": "node bin/copycat.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc -p jsconfig.json",
+    "test": "node --test --test-concurrency=1 tests/unit/",
+    "test:integration": "node --test --test-concurrency=1 tests/integration/",
+    "test:all": "npm run test && npm run test:integration",
+    "check": "npm run lint && npm run typecheck && npm run test:all",
+    "browsers": "playwright install chromium"
+  },
+  "dependencies": {
+    "pixelmatch": "^7.1.0",
+    "playwright": "1.64.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.0.0",
+    "@types/pngjs": "^6.0.5",
+    "eslint": "^10.0.0",
+    "globals": "^17.0.0",
+    "typescript": "5.9.3"
+  }
+}
