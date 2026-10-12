@@ -1,0 +1,7 @@
+interface:
+  display_name: "Copycat"
+  short_description: "Inspect a UI reference and rebuild it with measured fidelity"
+  brand_color: "#E58C55"
+  default_prompt: "Use $copycat to reconstruct the navbar from https://example.com in this project."
+policy:
+  allow_implicit_invocation: true

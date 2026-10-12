@@ -1,0 +1,7 @@
+[
+  { "action": "click", "selector": "[role=tab]:nth-of-type(2)", "name": "switch to yearly" },
+  { "action": "click", "selector": "[data-open-modal]", "name": "open contact dialog" },
+  { "action": "press", "key": "Escape", "name": "close dialog with escape" },
+  { "action": "fill", "selector": "#email", "value": "test.user@example.test" },
+  { "action": "screenshot", "name": "final state" }
+]
