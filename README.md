@@ -190,6 +190,7 @@ copycat compare --reference https://example.com --local http://localhost:5173 --
 copycat compare --reference design.png --local http://localhost:5173 --viewport 1440x900
 copycat report --run <id>
 copycat doctor
+copycat relay dispatch --to codex --task "…"                        # another agent CLI as a worker
 ```
 
 Every command writes to `.copycat/runs/<run-id>/`, which is git-ignored. Pass `--run <id>`
@@ -207,6 +208,26 @@ browser missing · `6` blocked (auth, CAPTCHA, or an unsafe action) · `7` over 
 | `asset-inventory.json`, `accessibility.json` | Asset inventory (nothing downloaded), heuristic a11y notes |
 | `compare.json`, `compare/iter-N/` | Reference, local, diff and side-by-side images for each iteration |
 | `report.md` | The summary, built only from the artifacts above |
+
+### Relay: other agents as workers
+
+`copycat relay` hands a sub-task to another agent CLI running headless (Claude Code, Codex,
+Cursor, Antigravity via the Gemini CLI, OpenCode). The worker's final answer lands in
+`.copycat/relay/<id>/result.md`; the primary agent reads it and keeps building. Use it to
+inspect extra routes in parallel, get a second-opinion design analysis, or review the build.
+
+```bash
+copycat relay harnesses
+copycat relay dispatch --to codex --name pricing --mode write \
+  --task "Run copycat inspect https://example.com/pricing --interactions --run pricing. Write only under .copycat/. Summarize tokens, layout and interactions."
+copycat relay wait
+copycat relay result <id>
+```
+
+`--mode read` (default) keeps the worker out of project files; `write` lets it edit; `full`
+removes the sandbox. The engine is the same `relay.py` that ships with
+[nummode](https://github.com/byte4day/nummode) (Python 3.9+, standard library only). Set
+`COPYCAT_RELAY` to use another copy. Workers cannot start workers.
 
 ## Visual comparison
 

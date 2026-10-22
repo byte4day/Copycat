@@ -1,6 +1,6 @@
 {
   "name": "copycat-skill",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "An AI agent skill for inspecting and reconstructing website UI, UX and interactions across Claude Code, Codex, Cursor and Antigravity.",
   "license": "MIT",
   "private": true,

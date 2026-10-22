@@ -33,6 +33,10 @@ Commands
                             Screenshot + structural comparison with diff images
   report [--run id]         (Re)build report.md for a run
   doctor                    Check Node, Playwright and Chromium
+  relay <sub> [options]     Hand a sub-task to another agent CLI (claude, codex, cursor,
+                            antigravity/gemini, opencode); results in .copycat/relay/<id>/
+                            sub: harnesses | dispatch --to <h> --task "…" [--mode read|write] |
+                                 status | wait | result <id> | cancel <id>
 
 Common options
   --out <dir>               Runs folder (default .copycat/runs)
@@ -74,6 +78,7 @@ async function main(argv) {
     case 'report': return cmdReport(rest);
     case 'recon': return cmdRecon(rest);
     case 'doctor': return cmdDoctor(rest);
+    case 'relay': { const { runRelay } = await import('../src/relay/relay.mjs'); return runRelay(rest); }
     default: throw new CopycatError(`Unknown command "${cmd}"`, EXIT.USAGE, 'Run `copycat help`.');
   }
 }
