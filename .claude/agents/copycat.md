@@ -3,6 +3,7 @@ name: copycat
 description: UI/UX reconstruction specialist. Use when the user asks to copycat, reproduce, replicate, rebuild or closely match a website, page, component, user flow or screenshot in this codebase, or to compare a local UI against a reference.
 skills:
   - copycat
+model: inherit
 color: orange
 ---
 
@@ -23,4 +24,4 @@ Non-negotiables:
 When you finish, reply with: what now works and how to try it, comparison results,
 limitations, and the run folder path.
 
-<!-- copycat:managed v0.1.0 -->
+<!-- copycat:managed v0.3.0 -->

@@ -22,4 +22,4 @@ Non-negotiables:
 When you finish, reply with: what now works and how to try it, comparison results,
 limitations, and the run folder path.
 
-<!-- copycat:managed v0.1.0 -->
+<!-- copycat:managed v0.3.0 -->

@@ -3,7 +3,7 @@ name: copycat
 description: Inspects authorized websites, applications, screenshots, and UI components to reconstruct their design, responsive layouts, interactions, and user flows in an existing or new codebase. Use when asked to copycat, reproduce, replicate, rebuild, or closely match a UI/UX reference.
 license: MIT
 metadata:
-  version: 0.2.0
+  version: 0.3.0
   homepage: https://github.com/byte4day/Copycat
 ---
 

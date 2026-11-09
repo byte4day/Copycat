@@ -10,13 +10,14 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-171717"></a>
   <img alt="Node 20+" src="https://img.shields.io/badge/node-%E2%89%A520-171717">
-  <img alt="Agent Skill" src="https://img.shields.io/badge/agent%20skill-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Cursor%20%C2%B7%20Antigravity-E58C55">
+  <img alt="Agent Skill" src="https://img.shields.io/badge/agent%20skill-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Cursor%20%C2%B7%20Antigravity%20%C2%B7%20OpenCode-E58C55">
 </p>
 
-Copycat is an open-source **agent skill** plus a **browser toolkit**. Your AI coding agent
-uses it to inspect a UI reference (a live page, a local build, or a screenshot), understand
-its structure, design tokens, responsive behavior and interactions, and rebuild the scope
-you asked for inside your own project. It then measures how close the result is.
+Copycat is an open-source **[Agent Skills](https://agentskills.io/)** package plus a
+**browser toolkit**. Your AI coding agent uses it to inspect a UI reference (a live page,
+a local build, or a screenshot), understand its structure, design tokens, responsive
+behavior and interactions, and rebuild the scope you asked for inside your own project.
+It then measures how close the result is.
 
 It does not paste screenshots into your app or generate a generic lookalike. Each step is
 backed by evidence from a real browser: computed styles, DOM geometry, observed state
@@ -26,6 +27,7 @@ changes, and pixel and structural diffs.
 
 - [What it does](#what-it-does)
 - [Supported platforms](#supported-platforms)
+- [Models](#models)
 - [How it works](#how-it-works)
 - [Install](#install)
 - [Quick start](#quick-start)
@@ -60,10 +62,21 @@ changes, and pixel and structural diffs.
 | **OpenAI Codex** | `~/.agents/skills/copycat` | `$copycat <request>` | `~/.codex/agents/copycat.toml` |
 | **Cursor** | `~/.agents/skills/copycat` | `/copycat <request>` | `~/.cursor/agents/copycat.md` |
 | **Google Antigravity** | `~/.gemini/config/skills/copycat` | `/copycat <request>` (2.0 / CLI) | skill only ([why](docs/compatibility.md#native-agents)) |
+| **OpenCode** | *use `.agents/skills/copycat`* | host skill UX when Agent Skills are enabled | skill only; installer does not target OpenCode |
 
 Project-local installs use `.claude/skills/`, `.agents/skills/` and the matching agent
-folders. All paths were checked against each host's current documentation; see
+folders. The skill follows the [Agent Skills](https://agentskills.io/) open standard, so
+compatible hosts (including OpenCode when it loads `.agents/skills`) share one tree. All
+paths were checked against each host's current documentation; see
 [docs/compatibility.md](docs/compatibility.md) for sources and caveats.
+
+## Models
+
+Prefer `model: inherit` on Cursor and Claude Code agents so the subagent matches the
+parent chat. Claude Code aliases include `fable`, `opus`, `sonnet`, `haiku`, and
+`inherit` (current line: Claude Fable 5.2 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5). OpenAI /
+Codex lines current as of the compatibility check: GPT-6 Astra, GPT-6.1 Sol / Terra, and
+GPT-6 Luna. On Cursor, prefer native Task/subagents over same-host relay.
 
 ## How it works
 

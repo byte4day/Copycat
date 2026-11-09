@@ -1,4 +1,4 @@
-# copycat:managed v0.1.0
+# copycat:managed v0.3.0
 name = "copycat"
 description = "UI/UX reconstruction specialist. Use when asked to copycat, reproduce, replicate, rebuild or closely match a website, page, component, user flow or screenshot, or to compare a local UI against a reference."
 developer_instructions = """
