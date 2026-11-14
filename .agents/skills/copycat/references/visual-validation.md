@@ -20,13 +20,26 @@ things progressed. Stop when one of these is true:
 - The issue list has only explained, accepted differences (fonts not available, licensed
   imagery replaced, dynamic content).
 - You have done 5 iterations. Report what remains.
-- A `--max-mismatch` gate passes, if the user set one.
+- A `--max-mismatch` gate passes, if the user set one. It is a ratio from 0 to 1
+  (`0.01` = 1%); a percentage such as `5` is rejected.
 
 For components, compare the same root on both sides with `--selector`. Use
 `--local-selector` when the local root has a different selector.
-For interactive states, run `flow` with the same steps against both sides (`--label
-reference`, then `--label local`, same `--run`) and compare the step screenshots and
-observations.
+
+For interactive states, pass the steps that reach the state. Both sides run them before
+capture, under the same safety rules as `flow`:
+
+```bash
+$CC compare --reference https://example.com/pricing --local http://localhost:5173/pricing \
+  --steps open-dialog.json --local-steps open-dialog.local.json --no-full-page --run <run-id>
+```
+
+`--local-steps` is only needed when the local selectors differ. A step that fails stops the
+compare, so a wrong state is never measured. To compare *behavior* (what each step
+changed), run `flow` with the same steps against both sides (`--label reference`, then
+`--label local`, same `--run`). Running a flow again replaces its earlier rows.
+
+For a dark theme, add `--color-scheme dark` to both the inspect and the compare.
 
 ## What is measured
 
@@ -34,8 +47,8 @@ observations.
 |---|---|
 | `pixel.mismatchRatio` | Differing pixels ÷ compared pixels. A pixel differs when its color distance exceeds `--threshold` (pixelmatch YIQ, 0–1, default 0.1). Anti-aliased pixels count unless you pass `--ignore-antialiasing` |
 | `pixel.unstablePixels` | Pixels that changed between **two captures of the reference** (carousels, timers, ads). They are excluded and shown in blue in the diff image. Disable with `--no-stability` |
-| `pixel.sizeMismatch` | The screenshots have different sizes. Default `--size-mode pad` fills the missing area with magenta and counts it. `crop` compares only the overlap |
-| `regions[]` | Clusters of differing pixels, each with a bounding box and the smallest reference element under its center (`near`) |
+| `pixel.sizeMismatch` | The screenshots have different sizes. Default `--size-mode pad` fills the missing area with magenta and counts it. `crop` compares only the overlap. Unstable pixels are masked in both modes |
+| `regions[]` | Clusters of differing pixels, each with a bounding box and the smallest reference element under its center (`near`). The three largest also get `crop`: `compare/iter-N/region-<n>.<viewport>.png`, a full-size reference \| local \| diff cut of that area. Open these instead of squinting at a scaled-down full page |
 | `structural.coverage` | Share of key reference elements (role and label) found in the local DOM |
 | `structural.missing / extra` | Unmatched elements: structure problems |
 | `structural.layout` | Matched elements whose box differs by more than `--tolerance` px (default 4), relative to the scope root |
@@ -58,4 +71,5 @@ observations.
 
 `compare --reference design.png --local http://localhost:5173 --viewport 1440x900`
 compares against an image. Only pixel metrics are available, because there is no reference
-DOM. Match the viewport width to the image width.
+DOM. Match the viewport width to the image width. The image must be a PNG; convert JPEG or
+WebP first.

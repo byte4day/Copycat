@@ -19,10 +19,12 @@ ship an identical copy.
 Usage:
     relay.py harnesses [--json]
     relay.py dispatch --to codex --task "Research X; cite sources" [--mode read] [--wait]
+    relay.py dispatch --to codex,claude --task "..."      # same task to several harnesses
     relay.py status [ID ...] [--json]
     relay.py wait ID [ID ...] [--timeout 1800]
     relay.py result ID
     relay.py cancel ID
+    relay.py clean [--older-than DAYS | --all]
 """
 
 from __future__ import annotations
@@ -40,9 +42,11 @@ import sys
 import time
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 MODES = ("read", "write", "full")
 DEFAULT_TIMEOUT = 1800
+KILL_GRACE = 5
+ACTIVE = ("queued", "starting", "running")
 DEPTH_ENV = "NUMMODE_RELAY_DEPTH"
 MAX_DEPTH_ENV = "NUMMODE_RELAY_MAX_DEPTH"
 ROOT_ENV = "NUMMODE_RELAY_DIR"
@@ -185,11 +189,14 @@ def compose_prompt(task: str, task_dir: Path, mode: str, from_harness: str | Non
 # ---------------------------------------------------------------- storage
 
 
-def relay_root(arg: str | None, cwd: Path) -> Path:
+def relay_root(arg: str | None, cwd: Path, create: bool = True) -> Path:
+    """The relay folder. Only `dispatch` creates it; read commands leave the disk alone."""
     raw = arg or os.environ.get(ROOT_ENV)
     root = Path(raw).expanduser() if raw else cwd / ".relay"
     if not root.is_absolute():
         root = cwd / root
+    if not create:
+        return root
     root.mkdir(parents=True, exist_ok=True)
     ignore = root / ".gitignore"
     if not ignore.exists():
@@ -247,11 +254,29 @@ def refresh_status(task_dir: Path) -> dict:
     return meta
 
 
+def failure_hint(task_dir: Path, meta: dict) -> str:
+    """One line saying why a task did not finish: the recorded error or the last log line."""
+    if meta.get("error"):
+        return str(meta["error"])
+    try:
+        lines = (task_dir / "log.txt").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        line = line.strip()
+        if line and not re.match(r"^\[\d{4}-\d\d-\d\dT[^\]]+\] (start|end):", line):
+            return line[:200]
+    return ""
+
+
 def find_task(root: Path, ident: str) -> Path:
+    if not root.is_dir():
+        raise SystemExit(f"relay: no task '{ident}' in {root}")
     direct = root / ident
-    if direct.is_dir():
+    if direct.is_dir() and (direct / "meta.json").exists():
         return direct
-    matches = sorted(p for p in root.iterdir() if p.is_dir() and p.name.startswith(ident))
+    matches = sorted(p for p in root.iterdir()
+                     if p.is_dir() and p.name.startswith(ident) and (p / "meta.json").exists())
     if len(matches) == 1:
         return matches[0]
     if not matches:
@@ -298,8 +323,17 @@ def run_task(task_dir: Path) -> int:
                 os.killpg(proc.pid, signal.SIGTERM)
             except OSError:
                 proc.kill()
-            out, _ = proc.communicate()
+            try:
+                out, _ = proc.communicate(timeout=KILL_GRACE)
+            except subprocess.TimeoutExpired:
+                # The worker ignored SIGTERM. Do not hang the runner forever.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    proc.kill()
+                out, _ = proc.communicate()
             code, status = 124, "timeout"
+            meta["error"] = f"timed out after {timeout}s"
         (task_dir / "stdout.txt").write_text(out or "", encoding="utf-8")
         # Codex writes result.md itself (-o). Everyone else: final stdout is the result.
         if not result.exists() or not result.read_text(encoding="utf-8").strip():
@@ -308,9 +342,12 @@ def run_task(task_dir: Path) -> int:
             status = "failed"
             meta["error"] = "worker exited 0 but produced no output"
         log.write(f"[{_now()}] end: exit={code} status={status}\n")
+    error = meta.get("error")
     meta = read_meta(task_dir)
     if meta.get("status") == "cancelled":
         status = "cancelled"
+    elif error:
+        meta["error"] = error
     meta |= {"status": status, "exit_code": code, "finished_at": _now()}
     write_meta(task_dir, meta)
     return code
@@ -346,21 +383,87 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     if not args.task and not args.task_file:
         print("relay: give --task TEXT or --task-file FILE", file=sys.stderr)
         return 2
-    task = args.task or Path(args.task_file).read_text(encoding="utf-8")
-    harness = _canon(args.to)
-    binary = find_binary(harness)
-    if not binary:
-        print(f"relay: {harness} CLI not found on PATH. Run `relay.py harnesses` to see what is installed.",
-              file=sys.stderr)
+    if args.task:
+        task = args.task
+    else:
+        try:
+            task = Path(args.task_file).expanduser().read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"relay: cannot read --task-file {args.task_file}: {exc.strerror or exc}", file=sys.stderr)
+            return 2
+    if not task.strip():
+        print("relay: the task is empty", file=sys.stderr)
+        return 2
+    if args.timeout <= 0:
+        print("relay: --timeout must be a positive number of seconds", file=sys.stderr)
+        return 2
+    # --to accepts one harness or a comma list: the same task goes to each of them.
+    wanted: list[str] = []
+    for name in args.to.split(","):
+        if name.strip() and _canon(name) not in wanted:
+            wanted.append(_canon(name))
+    if not wanted:
+        print("relay: --to needs a harness name", file=sys.stderr)
+        return 2
+    targets = []
+    for harness in wanted:
+        binary = find_binary(harness)
+        if binary:
+            targets.append((harness, binary))
+        else:
+            print(f"relay: {harness} CLI not found on PATH. Run `relay.py harnesses` to see what is installed.",
+                  file=sys.stderr)
+    if not targets:
         return 4
     cwd = Path(args.cwd).expanduser().resolve() if args.cwd else Path.cwd()
+    if not cwd.is_dir():
+        print(f"relay: --cwd {cwd} is not a directory", file=sys.stderr)
+        return 2
     root = relay_root(args.dir, cwd)
+    context = [Path(c).expanduser().resolve() for c in (args.context or [])]
+    for c in context:
+        if not c.exists():
+            print(f"relay: warning: context file {c} does not exist", file=sys.stderr)
+
+    metas = [_prepare_task(args, harness, binary, task, cwd, root, context) for harness, binary in targets]
+    if args.dry_run:
+        for meta in metas:
+            meta["status"] = "dry-run"
+            write_meta(Path(meta["dir"]), meta)
+        _print_dispatch_all(metas, args.json)
+        return 0
+    if args.wait and len(metas) == 1:
+        task_dir = Path(metas[0]["dir"])
+        code = run_task(task_dir)
+        meta = read_meta(task_dir)
+        _print_dispatch(meta, args.json)
+        if not args.json:
+            print(f"\n--- result ({meta['status']}) ---")
+            print((task_dir / "result.md").read_text(encoding="utf-8"))
+        return 0 if code == 0 else 1
+    for meta in metas:
+        meta["status"] = "starting"
+        write_meta(Path(meta["dir"]), meta)
+        # The detached runner owns meta.json from here on; the parent never writes it again.
+        subprocess.Popen(  # noqa: S603
+            [sys.executable, str(Path(__file__).resolve()), "_run", meta["dir"]],
+            cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    _print_dispatch_all(metas, args.json)
+    if args.wait:
+        return _wait([Path(m["dir"]) for m in metas], args.timeout + 30, 2.0)
+    return 0 if len(targets) == len(wanted) else 4
+
+
+def _prepare_task(args: argparse.Namespace, harness: str, binary: str, task: str, cwd: Path, root: Path,
+                  context: list[Path]) -> dict:
     stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     task_id = f"{stamp}-{harness}-{slug(args.name or task)}-{secrets.token_hex(2)}"
     task_dir = root / task_id
     (task_dir / "files").mkdir(parents=True)
-    context = [Path(c).expanduser().resolve() for c in (args.context or [])]
-    prompt = compose_prompt(task, task_dir, args.mode, args.from_harness or current_harness(), context)
+    sender = args.from_harness or current_harness()
+    prompt = compose_prompt(task, task_dir, args.mode, sender, context)
     (task_dir / "brief.md").write_text(task.strip() + "\n", encoding="utf-8")
     (task_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
     command, stdin_text = build_command(
@@ -369,33 +472,18 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     meta = {
         "id": task_id, "harness": harness, "mode": args.mode, "cwd": str(cwd), "dir": str(task_dir),
         "command": command, "prompt_via_stdin": stdin_text is not None, "timeout": args.timeout,
-        "status": "queued", "created_at": _now(), "from": args.from_harness or current_harness(),
-        "relay_version": VERSION,
+        "status": "queued", "created_at": _now(), "from": sender, "relay_version": VERSION,
     }
     write_meta(task_dir, meta)
-    if args.dry_run:
-        meta["status"] = "dry-run"
-        write_meta(task_dir, meta)
-        _print_dispatch(meta, args.json)
-        return 0
-    if args.wait:
-        code = run_task(task_dir)
-        meta = read_meta(task_dir)
-        _print_dispatch(meta, args.json)
-        if not args.json:
-            print(f"\n--- result ({meta['status']}) ---")
-            print((task_dir / "result.md").read_text(encoding="utf-8"))
-        return 0 if code == 0 else 1
-    meta["status"] = "starting"
-    write_meta(task_dir, meta)
-    # The detached runner owns meta.json from here on; the parent never writes it again.
-    subprocess.Popen(  # noqa: S603
-        [sys.executable, str(Path(__file__).resolve()), "_run", str(task_dir)],
-        cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    _print_dispatch(meta, args.json)
-    return 0
+    return meta
+
+
+def _print_dispatch_all(metas: list[dict], as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(metas[0] if len(metas) == 1 else metas, indent=2))
+        return
+    for meta in metas:
+        _print_dispatch(meta, False)
 
 
 def _print_dispatch(meta: dict, as_json: bool) -> None:
@@ -412,11 +500,13 @@ def _print_dispatch(meta: dict, as_json: bool) -> None:
 def _task_dirs(root: Path, ids: list[str]) -> list[Path]:
     if ids:
         return [find_task(root, i) for i in ids]
+    if not root.is_dir():
+        return []
     return sorted(p for p in root.iterdir() if p.is_dir() and (p / "meta.json").exists())
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    root = relay_root(args.dir, Path.cwd())
+    root = relay_root(args.dir, Path.cwd(), create=False)
     rows = [refresh_status(d) for d in _task_dirs(root, args.ids)]
     if args.json:
         print(json.dumps(rows, indent=2))
@@ -428,36 +518,53 @@ def cmd_status(args: argparse.Namespace) -> int:
         res = Path(m.get("dir", "")) / "result.md"
         if res.exists():
             size = res.stat().st_size
-        print(f"{m.get('status', '?'):<8} {m.get('harness', '?'):<11} {m.get('mode', '?'):<5} "
+        print(f"{m.get('status', '?'):<9} {m.get('harness', '?'):<11} {m.get('mode', '?'):<5} "
               f"{m.get('id')}  result={size}B")
+        if m.get("status") in ("failed", "timeout"):
+            hint = failure_hint(Path(m.get("dir", "")), m)
+            if hint:
+                print(f"          why: {hint}")
     return 0
 
 
 def cmd_wait(args: argparse.Namespace) -> int:
-    root = relay_root(args.dir, Path.cwd())
+    root = relay_root(args.dir, Path.cwd(), create=False)
     dirs = _task_dirs(root, args.ids)
-    deadline = time.monotonic() + args.timeout
+    if not dirs:
+        print(f"no relay tasks in {root}")
+        return 0
+    return _wait(dirs, args.timeout, args.poll)
+
+
+def _wait(dirs: list[Path], timeout: float, poll: float) -> int:
+    """Block until every task leaves the active states. 0 = all done, 1 = some failed, 2 = still running."""
+    deadline = time.monotonic() + timeout
     pending = set(dirs)
-    while pending and time.monotonic() < deadline:
+    while pending:
         for d in list(pending):
-            if refresh_status(d).get("status") not in ("running", "queued", "starting"):
+            if refresh_status(d).get("status") not in ACTIVE:
                 pending.discard(d)
-        if pending:
-            time.sleep(args.poll)
+        if not pending or time.monotonic() >= deadline:
+            break
+        time.sleep(max(0.05, poll))
     worst = 0
     for d in dirs:
         m = read_meta(d)
-        state = m.get("status")
+        state = m.get("status") or "unknown"
         if d in pending:
             state, worst = "still-running", max(worst, 2)
         elif state != "done":
             worst = max(worst, 1)
         print(f"{state:<13} {m.get('id')}  →  {d / 'result.md'}")
+        if state in ("failed", "timeout"):
+            hint = failure_hint(d, m)
+            if hint:
+                print(f"              why: {hint}")
     return worst
 
 
 def cmd_result(args: argparse.Namespace) -> int:
-    root = relay_root(args.dir, Path.cwd())
+    root = relay_root(args.dir, Path.cwd(), create=False)
     d = find_task(root, args.id)
     m = refresh_status(d)
     res = d / "result.md"
@@ -469,9 +576,13 @@ def cmd_result(args: argparse.Namespace) -> int:
 
 
 def cmd_cancel(args: argparse.Namespace) -> int:
-    root = relay_root(args.dir, Path.cwd())
+    root = relay_root(args.dir, Path.cwd(), create=False)
     d = find_task(root, args.id)
-    m = read_meta(d)
+    m = refresh_status(d)
+    if m.get("status") not in ACTIVE:
+        # A finished task keeps its real outcome; cancelling it would hide a result.
+        print(f"{m.get('id')} is already {m.get('status')}; nothing to cancel")
+        return 0
     for key in ("worker_pid", "runner_pid"):
         pid = m.get(key)
         if _alive(pid):
@@ -488,6 +599,27 @@ def cmd_cancel(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_clean(args: argparse.Namespace) -> int:
+    """Delete finished task folders. Active tasks are never touched."""
+    root = relay_root(args.dir, Path.cwd(), create=False)
+    removed = kept = 0
+    for d in _task_dirs(root, []):
+        m = refresh_status(d)
+        stamp = m.get("finished_at") or m.get("created_at")
+        old_enough = args.all or _age(stamp) >= args.older_than * 86400
+        if m.get("status") in ACTIVE or not old_enough:
+            kept += 1
+            continue
+        if args.dry_run:
+            print(f"would remove {d.name} ({m.get('status')})")
+        else:
+            shutil.rmtree(d, ignore_errors=True)
+        removed += 1
+    verb = "would remove" if args.dry_run else "removed"
+    print(f"{verb} {removed} task folder(s), kept {kept} in {root}")
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="relay.py", description="Delegate tasks to other agent harnesses.")
     p.add_argument("--version", action="version", version=f"nummode relay {VERSION}")
@@ -498,7 +630,8 @@ def parser() -> argparse.ArgumentParser:
     h.set_defaults(fn=cmd_harnesses)
 
     d = sub.add_parser("dispatch", help="start a worker in another harness")
-    d.add_argument("--to", required=True, help=f"harness: {', '.join(HARNESSES)}")
+    d.add_argument("--to", required=True,
+                   help=f"harness, or a comma list to send the same task to several: {', '.join(HARNESSES)}")
     d.add_argument("--task", help="task text")
     d.add_argument("--task-file", help="read the task from a file")
     d.add_argument("--name", help="short label used in the task id")
@@ -538,6 +671,14 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument("id")
     c.add_argument("--dir")
     c.set_defaults(fn=cmd_cancel)
+
+    k = sub.add_parser("clean", help="delete finished task folders")
+    k.add_argument("--dir")
+    k.add_argument("--older-than", type=float, default=7.0, metavar="DAYS",
+                   help="only tasks finished at least this many days ago (default 7)")
+    k.add_argument("--all", action="store_true", help="every finished task, whatever its age")
+    k.add_argument("--dry-run", action="store_true")
+    k.set_defaults(fn=cmd_clean)
     return p
 
 

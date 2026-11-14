@@ -6,6 +6,10 @@ screenshots. Look at the screenshots (open the PNGs) as well as the numbers.
 
 ## Tokens
 
+Start with `copycat tokens --run <id>`. It writes `tokens.css` (or a Tailwind v4 `@theme`
+with `--format tailwind`): every measured color, size, space, radius and shadow under a
+suggested name. Then refine the names with the rules below.
+
 - **Color:** `palette` is sorted by usage weight and tagged with roles (`text`,
   `background`, `border`). Map them to semantic names (`--text`, `--text-muted`,
   `--surface`, `--border`, `--accent`) based on where they appear, not on how often. Hover

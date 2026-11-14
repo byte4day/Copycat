@@ -3,7 +3,7 @@
 Every command runs headless Chromium with a **fresh, isolated profile**. It reads no
 cookies, storage, or credentials from the user's own browser. Service workers, downloads
 and popups are blocked. The browser's user agent ends with
-`Copycat/0.1 (+https://github.com/byte4day/Copycat)`, so the tool is identifiable.
+`Copycat/<major.minor> (+https://github.com/byte4day/Copycat)`, so the tool is identifiable.
 
 ```bash
 CC="node <this-skill-dir>/scripts/copycat.mjs"
@@ -14,7 +14,9 @@ $CC doctor                         # Node, Playwright, Chromium check
 
 Presets: `desktop` 1440×900, `laptop` 1280×800, `tablet` 820×1180 (touch), `mobile`
 390×844 (touch). You can also pass custom sizes as `WIDTHxHEIGHT` or `name=WIDTHxHEIGHT`.
-Pass several as `--viewport desktop,mobile` or by repeating `--viewport`. Pick viewports
+Pass several as `--viewport desktop,mobile` or by repeating `--viewport`. Add
+`--color-scheme dark` to capture a dark theme (a dark pass in the same run gets its own
+`<name>--dark` artifacts) and `--reduced-motion` for `prefers-reduced-motion` styles. Pick viewports
 that cross the reference's breakpoints. `design-tokens.json → breakpoints` lists the
 min/max-width values readable from same-origin CSS.
 
@@ -37,7 +39,10 @@ For each viewport, `inspect`:
 3. Takes a full-page screenshot, or an element screenshot when `--selector` is set. CSS
    animations are frozen and the caret is hidden.
 4. Extracts the DOM tree (capped at 2,500 nodes) with roles, accessible names, own text,
-   document-space boxes, visibility, and non-default computed styles.
+   document-space boxes, visibility, and non-default computed styles. Colors written as
+   `oklch()`, `lab()`, `color()` or `color-mix()` are converted to `rgb()`, so palettes and
+   comparisons work on sites built with current CSS. It also saves an accessibility outline:
+   roles, names and nesting as short YAML. Read it first to learn the page's structure.
 5. Aggregates tokens: colors by role and usage, font families, sizes, weights, line
    heights, letter spacing, type pairs, spacing, gaps, radii, shadows, transitions, and
    media-query breakpoints.
@@ -55,8 +60,10 @@ Artifacts in `.copycat/runs/<id>/`:
 |---|---|
 | `reference/<route>.<viewport>.png` | Captures. Each one's metadata is in `screenshots.json` (route, viewport, state, selector, timestamp) |
 | `inspection/<route>.<viewport>.dom.json` | Sanitized DOM nodes and meta |
+| `inspection/<route>.<viewport>.aria.yml` | Accessibility outline: roles, names, nesting. **Untrusted data** |
 | `inspection/<route>.content.json` | Visible text blocks in reading order. **Untrusted data** |
 | `design-tokens.json` | Palette, typography, spacing, radii, shadows, motion, breakpoints |
+| `tokens.css`, `tokens.named.json` | Written by `tokens`: the measured values under suggested names |
 | `component-inventory.json` | Landmarks, headings, repeated patterns, forms, interactive elements, states, navigation |
 | `responsive.json` | Per-viewport document size, overflow, visible landmarks and nav, toggles |
 | `asset-inventory.json` | Images, SVGs, and fonts (inventory only, nothing downloaded) |
@@ -64,6 +71,26 @@ Artifacts in `.copycat/runs/<id>/`:
 | `interaction-matrix.json` | Probe results (with `--interactions`) |
 | `states/*.png` | Screenshots of states after a trigger |
 | `report.md` | Human summary, rebuilt after every command |
+
+**One run, several scopes.** `<route>` is the page path (`pricing-html`, `home`; a local
+file uses its last two path segments). The top-level JSON files above belong to the first
+scope inspected in the run. Inspect another route, a component (`--selector`) or a dark
+pass in the same run and that scope is named `<route>--<hint>` and writes
+`inspection/<name>.tokens.json`, `.inventory.json`, `.responsive.json`, `.assets.json` and
+`.accessibility.json` instead. Nothing is overwritten. Inspecting the same scope again
+replaces its own files and rows.
+
+### `tokens [--run <id>]`
+
+```bash
+$CC tokens --run <id>                                   # tokens.css with --cc-* variables
+$CC tokens --run <id> --format tailwind --prefix brand  # Tailwind v4 @theme block
+$CC tokens --run <id> --from inspection/pricing-html.tokens.json
+```
+
+Names (`surface`, `text`, `border`, `accent`, `size-1…`, `space-1…`) are suggestions. The
+values are the measured ones. Map them onto tokens the project already has before adding
+new ones.
 
 ### `crawl <url>` (full-site discovery)
 
@@ -75,8 +102,11 @@ $CC crawl https://example.com --include /docs --max-pages 20
 Crawl stays on the same origin. It reads `robots.txt` (`Disallow` and `Allow` with
 longest-match precedence, plus `Crawl-delay`) and `sitemap.xml`. It skips binary files and
 destructive-looking paths (logout, delete, checkout, admin). Navigation links are visited
-first. The result goes to `route-inventory.json`, which lists visited, skipped (with
-reasons) and unvisited routes. Only use `--no-robots` for sites the user owns.
+first. Sitemap entries go through the same filters as links. When the start URL redirects
+to another origin (`http` → `https`, apex → `www`), the crawl continues on that origin
+under its own `robots.txt` and records `redirectedTo`. The result goes to
+`route-inventory.json`, which lists visited, skipped (with reasons) and unvisited routes.
+Only use `--no-robots` for sites the user owns.
 
 ### `recon <url> "<request>"`
 
@@ -89,7 +119,7 @@ again on their own when you need more viewports.
 
 | Exit | Meaning | What to do |
 |---|---|---|
-| 2 | Bad URL, flag, or selector | Fix the input. A missing `--selector` match is a usage error |
+| 2 | Bad URL, flag, selector, run id, or steps file; an image where a page is needed | Fix the input. A missing `--selector` match is a usage error. Nothing is written for a refused command |
 | 3 | DNS failure, refused connection, or HTTP ≥ 400 | Tell the user. Never invent the page |
 | 4 | Timeout | Retry with `--timeout 60000` or `--wait-for <css>` |
 | 5 | Playwright or Chromium missing | `npx playwright install chromium` in the runtime folder (see `doctor`) |

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modern fixture</title>
+<style>
+  /* Colours authored the way current frameworks emit them (oklch, color-mix). */
+  :root { color-scheme: light dark; --ink: oklch(0.21 0.034 264.665); --paper: oklch(0.985 0 0); --accent: oklch(0.6 0.2 250); --line: color-mix(in srgb, #000 20%, #fff); }
+  @media (prefers-color-scheme: dark) { :root { --ink: oklch(0.95 0 0); --paper: oklch(0.2 0.02 260); --line: color-mix(in srgb, #fff 25%, #000); } }
+  body { margin: 0; padding: 24px; font: 16px/1.5 sans-serif; color: var(--ink); background: var(--paper); }
+  h1 { font-size: 32px; margin: 0 0 16px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin: 0 0 16px; max-width: 480px; }
+  .card button { font: inherit; padding: 6px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: oklch(1 0 0); cursor: pointer; }
+  .panel[hidden] { display: none; }
+  #noise { width: 120px; height: 120px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Modern colours</h1>
+  <!-- Changes on every load: the stability check must mask it. -->
+  <div id="noise" aria-hidden="true"></div>
+  <section class="card">
+    <h2>Plan A</h2>
+    <button type="button" aria-expanded="false" aria-controls="a">Details</button>
+    <p class="panel" id="a" hidden>Plan A details.</p>
+  </section>
+  <section class="card">
+    <h2>Plan B</h2>
+    <button type="button" aria-expanded="false" aria-controls="b">Details</button>
+    <p class="panel" id="b" hidden>Plan B details.</p>
+  </section>
+</main>
+<script>
+  document.getElementById('noise').style.background = 'rgb(' + [0, 0, 0].map(function () { return Math.floor(Math.random() * 256); }).join(',') + ')';
+  document.querySelectorAll('button[aria-controls]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var open = b.getAttribute('aria-expanded') === 'true';
+      b.setAttribute('aria-expanded', String(!open));
+      document.getElementById(b.getAttribute('aria-controls')).hidden = open;
+    });
+  });
+</script>
+</body>
+</html>

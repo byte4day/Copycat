@@ -3,6 +3,7 @@ import { parseViewport } from '../browser/viewports.mjs';
 import { routeKey, sameOrigin } from '../core/url.mjs';
 import { redactUrl } from '../core/redact.mjs';
 import { CopycatError } from '../core/errors.mjs';
+import { USER_AGENT_TOKEN } from '../core/version.mjs';
 
 /**
  * Minimal robots.txt parser: groups for `*` and `Copycat`, Allow/Disallow
@@ -63,7 +64,7 @@ async function fetchText(url, timeout) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow', headers: { 'User-Agent': 'Copycat/0.1 (+https://github.com/byte4day/Copycat)' } });
+    const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow', headers: { 'User-Agent': USER_AGENT_TOKEN } });
     if (!res.ok) return null;
     return (await res.text()).slice(0, 2_000_000);
   } catch {
@@ -82,6 +83,16 @@ const SKIP_EXT = /\.(pdf|zip|gz|dmg|exe|png|jpe?g|gif|webp|avif|svg|mp4|mp3|webm
 const SKIP_PATH = /\/(logout|log-out|signout|sign-out|delete|remove|unsubscribe|cart\/add|checkout|wp-admin|admin)(\/|$)/i;
 
 /**
+ * May this URL be queued? Same origin, a page (not a file download or a
+ * nested sitemap) and not a destructive-looking path. Applied to links and
+ * to sitemap entries alike.
+ * @param {URL} u @param {URL} start
+ */
+export function crawlable(u, start) {
+  return sameOrigin(u, start) && !SKIP_EXT.test(u.pathname) && !SKIP_PATH.test(u.pathname);
+}
+
+/**
  * Discover routes reachable from `start`: same origin only, robots-aware,
  * bounded by maxPages and depth, rate limited.
  * @param {import('../core/run.mjs').Run} run
@@ -92,29 +103,38 @@ export async function crawl(run, o) {
   const maxDepth = o.maxDepth ?? 3;
   const timeout = o.timeout ?? 20000;
   const http = o.url.protocol.startsWith('http');
-  let robots = null;
+  // Held in an object because it is reassigned from loadSiteRules() when the origin changes.
+  /** @type {{ robots: ReturnType<typeof parseRobots> | null }} */
+  const rules = { robots: null };
   /** @type {string[]} */
   let sitemapUrls = [];
-  if (http) {
-    const txt = await fetchText(new URL('/robots.txt', o.url).href, 5000);
-    robots = txt ? parseRobots(txt) : null;
-    const sitemapSources = robots?.sitemaps.length ? robots.sitemaps.slice(0, 3).map((s) => new URL(s, o.url).href) : [new URL('/sitemap.xml', o.url).href];
-    for (const s of sitemapSources) {
+  // The origin being crawled. Follows the start URL's own redirect (http → https, apex → www).
+  let origin = o.url;
+  /** @type {string | null} */
+  let redirectedTo = null;
+  /** @type {{url: URL, depth: number, from: string | null, via: string}[]} */
+  const queue = [{ url: o.url, depth: 0, from: null, via: 'start' }];
+
+  /** Load robots.txt and the sitemap of `base`'s origin and queue the sitemap pages. @param {URL} base */
+  const loadSiteRules = async (base) => {
+    const txt = await fetchText(new URL('/robots.txt', base).href, 5000);
+    rules.robots = txt ? parseRobots(txt) : null;
+    const sources = rules.robots?.sitemaps.length ? rules.robots.sitemaps.slice(0, 3).map((s) => new URL(s, base).href) : [new URL('/sitemap.xml', base).href];
+    sitemapUrls = [];
+    for (const s of sources) {
       const xml = await fetchText(s, 5000);
       if (xml) sitemapUrls = sitemapUrls.concat(parseSitemap(xml).slice(0, 500));
     }
-  }
-  const delay = Math.max(o.delayMs ?? 500, (robots?.delay ?? 0) * 1000);
+    for (const s of sitemapUrls) {
+      try {
+        const u = new URL(s, base);
+        if (crawlable(u, base)) queue.push({ url: u, depth: 1, from: null, via: 'sitemap' });
+      } catch { /* ignore */ }
+    }
+  };
+  if (http) await loadSiteRules(o.url);
+  const baseDelay = o.delayMs ?? 500;
   const respect = o.respectRobots !== false;
-
-  /** @type {{url: URL, depth: number, from: string | null, via: string}[]} */
-  const queue = [{ url: o.url, depth: 0, from: null, via: 'start' }];
-  for (const s of sitemapUrls) {
-    try {
-      const u = new URL(s);
-      if (sameOrigin(u, o.url)) queue.push({ url: u, depth: 1, from: null, via: 'sitemap' });
-    } catch { /* ignore */ }
-  }
   const seen = new Set();
   /** @type {any[]} */
   const routes = [];
@@ -129,15 +149,39 @@ export async function crawl(run, o) {
       const key = routeKey(item.url);
       if (seen.has(key)) continue;
       seen.add(key);
+      if (item.via !== 'start' && !sameOrigin(item.url, origin)) continue;
       const pathQ = item.url.pathname + item.url.search;
       if (o.include?.length && item.via !== 'start' && !o.include.some((p) => pathQ.startsWith(p))) continue;
-      if (respect && robots && !robots.allowed(pathQ)) {
+      if (respect && rules.robots && !rules.robots.allowed(pathQ)) {
         skipped.push({ url: redactUrl(item.url.href), reason: 'disallowed by robots.txt' });
         continue;
       }
-      if (routes.length) await new Promise((r) => setTimeout(r, delay));
+      if (routes.length) await new Promise((r) => setTimeout(r, Math.max(baseDelay, (rules.robots?.delay ?? 0) * 1000)));
       try {
         const nav = await gotoStable(page, item.url.href, { timeout, scroll: false, settleMs: 100 });
+        const landed = new URL(nav.finalUrl);
+        if (item.via === 'start' && !sameOrigin(landed, origin)) {
+          // Crawl the origin the site actually lives on, under that origin's own robots.txt.
+          origin = landed;
+          redirectedTo = landed.origin;
+          queue.length = 0;
+          if (landed.protocol.startsWith('http')) await loadSiteRules(landed);
+          const lp = landed.pathname + landed.search;
+          if (respect && rules.robots && !rules.robots.allowed(lp)) {
+            skipped.push({ url: redactUrl(landed.href), reason: 'disallowed by robots.txt' });
+            continue;
+          }
+        }
+        if (!sameOrigin(landed, origin)) {
+          skipped.push({ url: redactUrl(item.url.href), reason: `redirects off-origin to ${landed.origin}` });
+          continue;
+        }
+        // A redirect can land on a route that was already visited under another URL.
+        const landedKey = routeKey(landed);
+        if (landedKey !== key) {
+          if (seen.has(landedKey)) continue;
+          seen.add(landedKey);
+        }
         const info = await page.evaluate(() => ({
           title: document.title,
           h1: (document.querySelector('h1')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
@@ -162,7 +206,7 @@ export async function crawl(run, o) {
               continue;
             }
             u.hash = '';
-            if (!sameOrigin(u, o.url) || SKIP_EXT.test(u.pathname) || SKIP_PATH.test(u.pathname)) continue;
+            if (!crawlable(u, origin)) continue;
             if (!seen.has(routeKey(u))) queue.push({ url: u, depth: item.depth + 1, from: item.url.href, via: l.nav ? 'navigation' : 'link' });
           }
         }
@@ -176,12 +220,13 @@ export async function crawl(run, o) {
   }
   const inventory = {
     start: redactUrl(o.url.href),
-    budget: { maxPages, maxDepth, delayMs: delay },
-    robots: http ? (robots ? (respect ? 'respected' : 'present but ignored by --no-robots') : 'not found') : 'not applicable (file:)',
+    ...(redirectedTo ? { redirectedTo } : {}),
+    budget: { maxPages, maxDepth, delayMs: Math.max(baseDelay, (rules.robots?.delay ?? 0) * 1000) },
+    robots: http ? (rules.robots ? (respect ? 'respected' : 'present but ignored by --no-robots') : 'not found') : 'not applicable (file:)',
     sitemapUrls: sitemapUrls.length,
     routes,
     skipped,
-    unvisited: queue.filter((q) => !seen.has(routeKey(q.url))).slice(0, 50).map((q) => redactUrl(q.url.href)),
+    unvisited: [...new Map(queue.filter((q) => !seen.has(routeKey(q.url))).map((q) => [routeKey(q.url), redactUrl(q.url.href)])).values()].slice(0, 50),
   };
   await run.writeJson('route-inventory.json', inventory);
   await run.record({ type: 'crawl', start: inventory.start, visited: routes.length, skipped: skipped.length, robots: inventory.robots });

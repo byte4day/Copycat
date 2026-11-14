@@ -21,7 +21,8 @@ export async function buildReport(run) {
   const notes = existsSync(notesPath) ? readFileSync(notesPath, 'utf8').trim() : null;
 
   const events = /** @type {any[]} */ (ledger.events);
-  const inspects = events.filter((e) => e.type === 'inspect');
+  // A scope inspected twice appears once, with its latest numbers.
+  const inspects = [...new Map(events.filter((e) => e.type === 'inspect').map((e) => [e.identity ?? `${e.url}|${e.selector ?? ''}`, e])).values()];
   /** @type {string[]} */
   const L = [];
   const h = (/** @type {string} */ t) => L.push('', `## ${t}`, '');
@@ -42,7 +43,9 @@ export async function buildReport(run) {
   h('Inspected references');
   if (inspects.length) {
     L.push('| URL | Scope | Viewports | DOM nodes | Interactions probed |', '|---|---|---|---|---|');
-    for (const e of inspects) L.push(`| ${e.url} | ${e.selector ?? 'page'} | ${e.viewports.join(', ')} | ${e.nodeCount}${e.truncated ? ' (truncated)' : ''} | ${e.interactionsProbed} |`);
+    for (const e of inspects) L.push(`| ${e.url} | ${e.selector ?? 'page'}${e.colorScheme === 'dark' ? ' (dark)' : ''} | ${e.viewports.join(', ')} | ${e.nodeCount}${e.truncated ? ' (truncated)' : ''} | ${e.interactionsProbed} |`);
+    const outlines = [...new Set(inspects.flatMap((e) => e.ariaOutlines ?? []))];
+    if (outlines.length) L.push('', `Accessibility outlines (roles, names, nesting): ${outlines.map((f) => `[${f}](${f})`).join(', ')}`);
   } else L.push('_No live reference was inspected in this run._');
   if (routes) {
     L.push('', `Route discovery from ${routes.start}: ${routes.routes.length} visited, ${routes.skipped.length} skipped, robots.txt ${routes.robots}.`, '');
@@ -59,6 +62,7 @@ export async function buildReport(run) {
 
   h('Design tokens (measured)');
   if (tokens) {
+    if (tokens.source?.url) L.push(`Source: ${tokens.source.url}${tokens.source.scope ? ` (${tokens.source.scope})` : ''} at ${tokens.source.viewport}.`);
     L.push(`Palette (by usage): ${tokens.palette.slice(0, 10).map((/** @type {any} */ c) => `\`${c.hex}\` (${c.roles.join('/')})`).join(', ') || 'none'}`);
     L.push(`Font families: ${tokens.typography.families.map((/** @type {any} */ f) => `\`${f.value}\``).join(', ') || 'none'}`);
     L.push(`Type sizes: ${tokens.typography.sizes.slice(0, 10).map((/** @type {any} */ f) => f.value).join(', ')}`);
@@ -66,6 +70,14 @@ export async function buildReport(run) {
     L.push(`Radii: ${tokens.radii.map((/** @type {any} */ f) => f.value).join(', ') || 'none'} · Shadows: ${tokens.shadows.length}`);
     L.push(`Breakpoints from CSS: ${tokens.breakpoints.join(', ') || 'none readable'}`);
     L.push('', 'Full data: [design-tokens.json](design-tokens.json)');
+    // Scopes inspected after the first keep their own files instead of replacing the ones above.
+    const others = new Map(inspects.filter((e) => e.files && e.primary === false).map((e) => [e.files.tokens, e]));
+    if (others.size) {
+      L.push('', 'Other inspected scopes in this run have their own token and inventory files:');
+      for (const [file, e] of others) L.push(`- ${e.url}${e.selector ? ` (${e.selector})` : ''}${e.colorScheme === 'dark' ? ' (dark)' : ''}: [${file}](${file}), [${e.files.inventory}](${e.files.inventory})`);
+    }
+    const exported = events.filter((e) => e.type === 'tokens').flatMap((e) => e.files ?? []);
+    if (exported.length) L.push('', `Named export: ${[...new Set(exported)].map((f) => `[${f}](${f})`).join(', ')}`);
   } else L.push('_Not extracted in this run._');
 
   h('Components');
@@ -107,10 +119,13 @@ export async function buildReport(run) {
     L.push(cmp.note, '');
     L.push('| Iteration | Viewport | Mismatch | Diff px | Unstable px | Sizes (ref → local) | Diff image |', '|---|---|---|---|---|---|---|');
     for (const it of cmp.iterations) for (const r of it.results) {
-      L.push(`| ${it.iteration} | ${r.viewport.name} | ${(r.pixel.mismatchRatio * 100).toFixed(2)}% | ${r.pixel.diffPixels} | ${r.pixel.unstablePixels} | ${r.pixel.sizes.reference.width}×${r.pixel.sizes.reference.height} → ${r.pixel.sizes.local.width}×${r.pixel.sizes.local.height} | [diff](${r.files.diff}) |`);
+      L.push(`| ${it.iteration}${it.state ? ' (state)' : ''}${it.colorScheme === 'dark' ? ' (dark)' : ''} | ${r.viewport.name} | ${(r.pixel.mismatchRatio * 100).toFixed(2)}% | ${r.pixel.diffPixels} | ${r.pixel.unstablePixels} | ${r.pixel.sizes.reference.width}×${r.pixel.sizes.reference.height} → ${r.pixel.sizes.local.width}×${r.pixel.sizes.local.height} | [diff](${r.files.diff}) |`);
     }
     const last = cmp.iterations[cmp.iterations.length - 1];
     L.push('', `Latest iteration ${last.iteration}: ${last.passed === null ? 'no threshold set' : last.passed ? `within --max-mismatch ${last.maxMismatch}` : `exceeds --max-mismatch ${last.maxMismatch}`}.`);
+    if (last.state) L.push(`Compared after scripted steps (${last.state.referenceSteps} on the reference, ${last.state.localSteps} on the local build), not the default state.`);
+    const crops = last.results.flatMap((/** @type {any} */ r) => (r.regions ?? []).filter((/** @type {any} */ g) => g.crop).map((/** @type {any} */ g) => `[${r.viewport.name} (${g.x},${g.y})](${g.crop})`));
+    if (crops.length) L.push(`Zoomed crops of the largest differing regions (reference | local | diff): ${crops.join(', ')}`);
     const issues = last.results.flatMap((/** @type {any} */ r) => r.issues);
     if (issues.length) {
       L.push('', '**Prioritised corrections (latest iteration):**', '');
@@ -131,7 +146,7 @@ export async function buildReport(run) {
   if (routes?.skipped?.length) lim.push(`${routes.skipped.length} route(s) were skipped (robots.txt, errors or access limits).`);
   if (!cmp?.iterations?.length) lim.push('No visual comparison was performed in this run.');
   if (!flows.length && !matrix.length) lim.push('No interactive behaviour was observed; any implemented interactions are inferred.');
-  L.push(...(lim.length ? lim.map((x) => `- ${x}`) : ['- None detected automatically. Add agent-side limitations to implementation-notes.md.']));
+  L.push(...(lim.length ? [...new Set(lim)].map((x) => `- ${x}`) : ['- None detected automatically. Add agent-side limitations to implementation-notes.md.']));
   if (a11y?.issues?.length) L.push('', `Accessibility notes from the reference: ${a11y.issues.length} heuristic issue(s) — see [accessibility.json](accessibility.json).`);
 
   h('Implementation notes');

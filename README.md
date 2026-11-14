@@ -201,13 +201,18 @@ copycat recon https://example.com "copycat the entire site" --max-pages 5
 copycat flow https://example.com/signup --steps steps.json
 copycat compare --reference https://example.com --local http://localhost:5173 --viewport desktop,mobile
 copycat compare --reference design.png --local http://localhost:5173 --viewport 1440x900
+copycat compare --reference https://example.com --local http://localhost:5173 --steps open-menu.json   # compare a state
+copycat inspect https://example.com --color-scheme dark             # dark theme pass
+copycat tokens --run <id> --format tailwind                         # measured tokens → CSS variables or @theme
 copycat report --run <id>
 copycat doctor
 copycat relay dispatch --to codex --task "…"                        # another agent CLI as a worker
 ```
 
 Every command writes to `.copycat/runs/<run-id>/`, which is git-ignored. Pass `--run <id>`
-to add to a run. Exit codes: `0` ok · `2` usage · `3` unavailable · `4` timeout · `5`
+to add to a run. The top-level token and inventory files describe the first scope inspected
+in a run; each later scope (another route, a component, a dark pass) writes
+`inspection/<name>.*.json` next to its DOM files. Exit codes: `0` ok · `2` usage · `3` unavailable · `4` timeout · `5`
 browser missing · `6` blocked (auth, CAPTCHA, or an unsafe action) · `7` over the
 `--max-mismatch` threshold.
 
@@ -215,11 +220,13 @@ browser missing · `6` blocked (auth, CAPTCHA, or an unsafe action) · `7` over 
 |---|---|
 | `reference/*.png`, `states/*.png`, `flows/*.png` | Captures. Metadata (route, viewport, state, time) in `screenshots.json` |
 | `design-tokens.json` | Palette, typography, spacing, radii, shadows, motion, breakpoints |
+| `tokens.css`, `tokens.named.json` | From `copycat tokens`: the measured values under suggested names, as CSS variables or a Tailwind v4 `@theme` |
+| `inspection/*.aria.yml` | Accessibility outline of each inspected scope: roles, names, nesting |
 | `component-inventory.json` | Landmarks, headings, repeated patterns, forms, controls, hover/focus states |
 | `interaction-matrix.json`, `flows.json` | Observed state transitions |
 | `responsive.json`, `route-inventory.json` | Per-viewport layout facts, crawl results |
 | `asset-inventory.json`, `accessibility.json` | Asset inventory (nothing downloaded), heuristic a11y notes |
-| `compare.json`, `compare/iter-N/` | Reference, local, diff and side-by-side images for each iteration |
+| `compare.json`, `compare/iter-N/` | Reference, local, diff and side-by-side images for each iteration, plus full-size crops of the largest differing regions |
 | `report.md` | The summary, built only from the artifacts above |
 
 ### Relay: other agents as workers

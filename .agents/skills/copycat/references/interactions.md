@@ -51,13 +51,15 @@ Safety rules, enforced by the CLI:
 - On non-local references, `fill` on password, card, CVC, IBAN, SSN, or one-time-code
   fields is refused (exit 6).
 - On non-local references, form submits and transactional labels are refused unless the
-  user explicitly authorizes them and you pass `--allow-submit`. Never submit production
-  forms, purchases, or messages.
+  user explicitly authorizes them and you pass `--allow-submit`. This covers clicks, taps,
+  and `press` with Enter or Space on a submit control or inside a form field. Never submit
+  production forms, purchases, or messages.
 - Local references (`localhost`, `127.0.0.1`, `file:`) are the user's own builds, so these
   limits do not apply there.
 
 Run the same flow against the local build with `--label local` and the same `--run` id. The
-report then shows both sides, step by step.
+report then shows both sides, step by step. Running a label again replaces its earlier
+rows. A `wait` step with a selector waits up to the step timeout for late content.
 
 ## Matrix → implementation
 

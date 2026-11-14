@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Late content</title></head>
+<body>
+<main><h1>Late content</h1><p id="status">Loading…</p></main>
+<script>
+  // Appears after the old 5 s guard window, inside the step timeout.
+  setTimeout(function () {
+    var p = document.createElement('p');
+    p.id = 'late';
+    p.textContent = 'Loaded.';
+    document.querySelector('main').appendChild(p);
+  }, 5600);
+</script>
+</body>
+</html>

@@ -50,6 +50,34 @@ export function extractPage(opts) {
     },
   };
 
+  // Modern colour syntaxes (oklch, lab, color(), color-mix) are serialised the way they were
+  // authored. Paint them once and read the pixel back so every colour is rgb()/rgba(),
+  // which keeps palettes complete and reference-vs-local comparisons like-for-like.
+  const COLOR_KEYS = new Set(['color', 'backgroundColor', 'borderTopColor', 'borderBottomColor']);
+  /** @type {Map<string, string>} */
+  const colorCache = new Map();
+  /** @type {CanvasRenderingContext2D | null | undefined} */
+  let colorCtx;
+  /** @param {string} v */
+  const rgbOf = (v) => {
+    if (!v || v.startsWith('rgb')) return v;
+    const hit = colorCache.get(v);
+    if (hit !== undefined) return hit;
+    let out = v;
+    try {
+      if (colorCtx === undefined) colorCtx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+      if (colorCtx && CSS.supports('color', v)) {
+        colorCtx.clearRect(0, 0, 1, 1);
+        colorCtx.fillStyle = v;
+        colorCtx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = colorCtx.getImageData(0, 0, 1, 1).data;
+        out = a === 255 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${Math.round((a / 255) * 100) / 100})`;
+      }
+    } catch { /* keep the authored value */ }
+    colorCache.set(v, out);
+    return out;
+  };
+
   const sx = window.scrollX;
   const sy = window.scrollY;
   /** @param {Element} el */
@@ -153,7 +181,8 @@ export function extractPage(opts) {
     const styles = {};
     if (visible) {
       for (const k of STYLE_KEYS) {
-        const v = /** @type {any} */ (cs)[k];
+        const raw = /** @type {any} */ (cs)[k];
+        const v = COLOR_KEYS.has(k) ? rgbOf(raw) : raw;
         if (v !== undefined && v !== '' && /** @type {any} */ (DEFAULTS)[k] !== v) styles[k] = v;
       }
       // Border colours only matter when a border is drawn.
@@ -185,7 +214,7 @@ export function extractPage(opts) {
       const area = Math.max(1, node.box.w * node.box.h);
       const w = Math.log10(area + 10);
       if (text) {
-        bump(counters.color, cs.color, text.length);
+        bump(counters.color, rgbOf(cs.color), text.length);
         bump(counters.fontFamily, cs.fontFamily, text.length);
         bump(counters.fontSize, cs.fontSize, text.length);
         bump(counters.fontWeight, cs.fontWeight, text.length);
@@ -197,10 +226,11 @@ export function extractPage(opts) {
         if (!t.sizes.includes(node.tag) && t.sizes.length < 6) t.sizes.push(node.tag);
         typePairs.set(key, t);
       }
-      if (cs.backgroundColor !== 'rgba(0, 0, 0, 0)') bump(counters.background, cs.backgroundColor, w);
+      const bg = rgbOf(cs.backgroundColor);
+      if (bg !== 'rgba(0, 0, 0, 0)') bump(counters.background, bg, w);
       for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
         if (parseFloat(/** @type {any} */ (cs)[`border${side}Width`]) > 0 && /** @type {any} */ (cs)[`border${side}Style`] !== 'none') {
-          bump(counters.border, /** @type {any} */ (cs)[`border${side}Color`]);
+          bump(counters.border, rgbOf(/** @type {any} */ (cs)[`border${side}Color`]));
         }
       }
       if (cs.borderRadius !== '0px') bump(counters.radius, cs.borderRadius);
@@ -381,7 +411,7 @@ export function extractPage(opts) {
       title: document.title, lang: de.lang || null, url: location.href, scope: opts.selector || null,
       viewport: { width: window.innerWidth, height: window.innerHeight }, document: { width: de.scrollWidth, height: de.scrollHeight },
       rootBox: box(root), nodeCount: nodes.length, truncated, hiddenElements: hiddenCount,
-      colorScheme: getComputedStyle(de).colorScheme, bodyBackground: getComputedStyle(document.body).backgroundColor,
+      colorScheme: getComputedStyle(de).colorScheme, bodyBackground: rgbOf(getComputedStyle(document.body).backgroundColor),
       rootFontSize: getComputedStyle(de).fontSize, generator: document.querySelector('meta[name=generator]')?.getAttribute('content') || null,
       horizontalOverflow: de.scrollWidth > window.innerWidth + 1,
     },

@@ -2,7 +2,8 @@ import path from 'node:path';
 import { launchBrowser, newContext, gotoStable, stableScreenshot } from '../browser/launch.mjs';
 import { parseViewports, parseViewport } from '../browser/viewports.mjs';
 import { extractPage } from '../inspection/extract.mjs';
-import { readPng, writePng, diffImages, unstableMask, composite, padTo } from './image.mjs';
+import { readPng, writePng, diffImages, unstableMask, composite, padTo, cropRect } from './image.mjs';
+import { applySteps } from '../inspection/interact.mjs';
 import { redactUrl } from '../core/redact.mjs';
 import { CopycatError, EXIT } from '../core/errors.mjs';
 
@@ -24,7 +25,38 @@ export const PRIORITY = /** @type {const} */ ({ structure: 1, layout: 2, typogra
  * @property {number} [timeout]
  * @property {'pad'|'crop'} [sizeMode]
  * @property {boolean} [ignoreAntialiasing]  let pixelmatch discount anti-aliased pixels
+ * @property {import('../inspection/interact.mjs').Step[] | null} [steps]       run on the reference (and local) before capture
+ * @property {import('../inspection/interact.mjs').Step[] | null} [localSteps]  override for the local side
+ * @property {boolean} [allowSubmit]
+ * @property {boolean} [strict]
+ * @property {'light' | 'dark'} [colorScheme]
+ * @property {boolean} [reducedMotion]
+ * @property {number} [regionCrops]          how many worst regions get a zoomed crop (default 3)
  */
+
+/** Largest zoomed crop written per region, so the image stays readable. */
+const CROP_MAX = { w: 1600, h: 1200 };
+const CROP_PAD = 24;
+
+/**
+ * Human-readable description of the compared state (for the report).
+ * @param {CompareOptions} o
+ */
+function stateOf(o) {
+  // A screenshot reference has no page to run steps on.
+  const ref = typeof o.reference === 'string' ? 0 : o.steps?.length ?? 0;
+  const loc = (o.localSteps ?? o.steps)?.length ?? 0;
+  return ref || loc ? { referenceSteps: ref, localSteps: loc } : null;
+}
+
+/**
+ * Bring a loaded page into the requested state.
+ * @param {import('playwright').Page} page @param {URL} url
+ * @param {import('../inspection/interact.mjs').Step[] | null | undefined} steps @param {CompareOptions} o
+ */
+async function enterState(page, url, steps, o) {
+  if (steps?.length) await applySteps(page, steps, { url, timeout: o.timeout, allowSubmit: o.allowSubmit, strict: o.strict });
+}
 
 /**
  * @param {import('../core/run.mjs').Run} run
@@ -38,6 +70,9 @@ export async function compare(run, o) {
   await run.ensureDir(dir);
   const threshold = o.threshold ?? 0.1;
   const tolerance = o.tolerance ?? 4;
+  const mode = o.sizeMode ?? 'pad';
+  const ctxOpts = { colorScheme: o.colorScheme, reducedMotion: o.reducedMotion };
+  const localSteps = o.localSteps ?? o.steps ?? null;
 
   /** @type {any[]} */
   const results = [];
@@ -58,15 +93,17 @@ export async function compare(run, o) {
       if (refIsImage) {
         writePng(run.path(refFile), readPng(/** @type {string} */ (o.reference)));
       } else {
-        const ctx = await newContext(browser, vp);
+        const ctx = await newContext(browser, vp, ctxOpts);
         try {
           const page = await ctx.newPage();
           await gotoStable(page, /** @type {URL} */ (o.reference).href, { timeout: o.timeout });
+          await enterState(page, /** @type {URL} */ (o.reference), o.steps, o);
           await stableScreenshot(page, run.path(refFile), { selector: o.selector ?? undefined, fullPage: o.fullPage ?? true });
           refData = await page.evaluate(extractPage, { selector: o.selector ?? null, maxNodes: 2500 });
           if (o.stability !== false) {
             await page.reload({ waitUntil: 'load' });
             await gotoStable(page, /** @type {URL} */ (o.reference).href, { timeout: o.timeout });
+            await enterState(page, /** @type {URL} */ (o.reference), o.steps, o);
             await stableScreenshot(page, run.path(refFile2), { selector: o.selector ?? undefined, fullPage: o.fullPage ?? true });
             mask = true;
           }
@@ -74,10 +111,11 @@ export async function compare(run, o) {
           await ctx.close();
         }
       }
-      const lctx = await newContext(browser, vp);
+      const lctx = await newContext(browser, vp, ctxOpts);
       try {
         const page = await lctx.newPage();
         await gotoStable(page, o.local.href, { timeout: o.timeout });
+        await enterState(page, o.local, localSteps, o);
         const sel = o.localSelector ?? o.selector ?? undefined;
         await stableScreenshot(page, run.path(localFile), { selector: sel, fullPage: o.fullPage ?? true });
         localData = await page.evaluate(extractPage, { selector: sel ?? null, maxNodes: 2500 });
@@ -89,13 +127,15 @@ export async function compare(run, o) {
 
       const ref = readPng(run.path(refFile));
       const loc = readPng(run.path(localFile));
+      // The compared canvas: the union of both captures (pad) or their overlap (crop).
+      const w = mode === 'crop' ? Math.min(ref.width, loc.width) : Math.max(ref.width, loc.width);
+      const h = mode === 'crop' ? Math.min(ref.height, loc.height) : Math.max(ref.height, loc.height);
       if (mask) {
         // Pixels that changed between two captures of the reference are nondeterministic.
-        const w = Math.max(ref.width, loc.width);
-        const h = Math.max(ref.height, loc.height);
+        // Both captures are fitted to the compared canvas so the mask always lines up with it.
         mask = unstableMask(padTo(ref, w, h), padTo(readPng(run.path(refFile2)), w, h));
       }
-      const d = diffImages(ref, loc, { threshold, includeAA: !o.ignoreAntialiasing, mask: o.sizeMode === 'crop' || !(mask instanceof Uint8Array) ? null : mask, mode: o.sizeMode ?? 'pad' });
+      const d = diffImages(ref, loc, { threshold, includeAA: !o.ignoreAntialiasing, mask: mask instanceof Uint8Array ? mask : null, mode });
       const diffFile = `${dir}/diff.${vp.name}.png`;
       writePng(run.path(diffFile), d.diffImage);
       let compositeFile = null;
@@ -104,13 +144,26 @@ export async function compare(run, o) {
         writePng(run.path(compositeFile), composite(ref, loc, d.diffImage));
       }
       const structural = refData && localData ? structuralDiff(refData, localData, tolerance) : null;
-      const regions = d.regions.map((r) => ({ ...r, near: refData ? describeRegion(refData.nodes, r) : null }));
+      // Zoomed reference | local | diff crops of the worst regions: a full-page image is too
+      // small to read once it is scaled down, a crop is not.
+      const refFit = padTo(ref, w, h);
+      const locFit = padTo(loc, w, h);
+      const regions = d.regions.map((r, n) => {
+        /** @type {string | null} */
+        let crop = null;
+        if (n < (o.regionCrops ?? 3)) {
+          const box = { x: r.x - CROP_PAD, y: r.y - CROP_PAD, w: Math.min(r.w + CROP_PAD * 2, CROP_MAX.w), h: Math.min(r.h + CROP_PAD * 2, CROP_MAX.h) };
+          crop = `${dir}/region-${n + 1}.${vp.name}.png`;
+          writePng(run.path(crop), composite(cropRect(refFit, box), cropRect(locFit, box), cropRect(d.diffImage, box)));
+        }
+        return { ...r, near: refData ? describeRegion(refData.nodes, r) : null, crop };
+      });
       const issues = prioritise(structural, d, regions, vp.name);
       results.push({
         viewport: vp,
         files: { reference: refFile, referenceRecapture: mask ? refFile2 : null, local: localFile, diff: diffFile, sideBySide: compositeFile },
         pixel: {
-          threshold, ignoreAntialiasing: Boolean(o.ignoreAntialiasing), sizeMode: o.sizeMode ?? 'pad', width: d.width, height: d.height, sizes: d.sizes, sizeMismatch: d.sizeMismatch,
+          threshold, ignoreAntialiasing: Boolean(o.ignoreAntialiasing), sizeMode: mode, width: d.width, height: d.height, sizes: d.sizes, sizeMismatch: d.sizeMismatch,
           comparedPixels: d.comparedPixels, diffPixels: d.diffPixels, unstablePixels: d.unstablePixels,
           mismatchRatio: round(d.mismatchRatio, 5), stabilityCheck: Boolean(mask),
         },
@@ -130,6 +183,8 @@ export async function compare(run, o) {
     reference: refIsImage ? path.basename(/** @type {string} */ (o.reference)) : redactUrl(/** @type {URL} */ (o.reference).href),
     local: redactUrl(o.local.href),
     selector: o.selector ?? null,
+    state: stateOf(o),
+    colorScheme: o.colorScheme ?? 'light',
     maxMismatch: o.maxMismatch ?? null,
     passed: o.maxMismatch == null ? null : worst <= o.maxMismatch,
     worstMismatchRatio: worst,
@@ -295,7 +350,7 @@ export function prioritise(s, d, regions, vp) {
   }
   if (d.sizeMismatch) add('layout', `Screenshot size ${d.sizes.reference.width}×${d.sizes.reference.height} vs local ${d.sizes.local.width}×${d.sizes.local.height}`);
   for (const r of regions.slice(0, 8)) {
-    add(r.ratio > 0.3 ? 'layout' : 'micro', `Pixel region (${r.x},${r.y}) ${r.w}×${r.h}: ${(r.ratio * 100).toFixed(1)}% differs${r.near ? ` — near ${r.near}` : ''}`, r);
+    add(r.ratio > 0.3 ? 'layout' : 'micro', `Pixel region (${r.x},${r.y}) ${r.w}×${r.h}: ${(r.ratio * 100).toFixed(1)}% differs${r.near ? ` — near ${r.near}` : ''}${r.crop ? ` — zoom: ${r.crop}` : ''}`, r);
   }
   return issues.sort((a, b) => a.priority - b.priority);
 }

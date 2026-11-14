@@ -323,11 +323,12 @@ export async function installRuntime(o) {
   const sourceHash = `${hashPath(path.join(o.repo, 'bin'))}:${hashPath(path.join(o.repo, 'src'))}`;
   const lockHash = hashPath(path.join(o.repo, 'package-lock.json'));
   const sameCode = ledger.runtime?.hash === sourceHash;
-  if (current === o.version && hasDeps && sameCode && !o.force) return { action: 'up-to-date', dest };
+  // With --skip-npm the caller manages dependencies, so their absence is not a reason to recopy.
+  if (current === o.version && (hasDeps || o.skipNpm) && sameCode && !o.force) return { action: 'up-to-date', dest };
   if (existsSync(dest) && !ledger.runtime && !o.force) {
     return { action: 'conflict', dest, detail: `${dest} exists but is not recorded as a Copycat runtime — left untouched (use --force)` };
   }
-  const action = !current ? 'install' : current !== o.version ? `upgrade ${current} → ${o.version}` : 'update (code changed)';
+  const action = !current ? 'install' : current !== o.version ? `upgrade ${current} → ${o.version}` : sameCode ? 'repair (dependencies missing)' : 'update (code changed)';
   if (o.dryRun) return { action, dest };
   await mkdir(dest, { recursive: true });
   for (const item of ['bin', 'src']) {

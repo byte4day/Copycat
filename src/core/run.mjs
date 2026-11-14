@@ -1,8 +1,9 @@
 import { mkdir, writeFile, readFile, readdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { redactDeep } from './redact.mjs';
+import { CopycatError, EXIT } from './errors.mjs';
 
 export const DEFAULT_OUT = path.join('.copycat', 'runs');
 
@@ -14,15 +15,42 @@ export function newRunId(d = new Date()) {
 
 /**
  * Open (or create) a run directory. All JSON written through it is redacted.
- * @param {{ out?: string, run?: string }} opts
+ * `mustExist` refuses to create a new folder (used by read-only commands).
+ * @param {{ out?: string, run?: string, mustExist?: boolean }} opts
  */
 export async function openRun(opts = {}) {
   const base = path.resolve(opts.out ?? DEFAULT_OUT);
   const id = opts.run ?? newRunId();
-  if (!/^[\w.-]+$/.test(id)) throw new Error(`Invalid run id "${id}"`);
+  if (!/^[\w.-]+$/.test(id) || /^\.+$/.test(id)) {
+    throw new CopycatError(`Invalid run id "${id}"`, EXIT.USAGE, 'Use letters, digits, dot, dash or underscore, e.g. --run pricing-v2.');
+  }
   const dir = path.join(base, id);
+  if (opts.mustExist && !existsSync(dir)) {
+    const known = listRunIds(base);
+    throw new CopycatError(`Run "${id}" not found in ${base}`, EXIT.USAGE, known.length ? `Existing runs (newest first): ${known.slice(0, 8).join(', ')}` : 'No runs exist there yet. Run inspect, recon or compare first.');
+  }
   await mkdir(dir, { recursive: true });
   return new Run(id, dir);
+}
+
+/**
+ * Run ids in a runs folder, most recently updated first.
+ * @param {string} base
+ * @returns {string[]}
+ */
+export function listRunIds(base) {
+  if (!existsSync(base)) return [];
+  /** @param {string} id */
+  const stamp = (id) => {
+    const ledger = path.join(base, id, 'run.json');
+    try {
+      return statSync(existsSync(ledger) ? ledger : path.join(base, id)).mtimeMs;
+    } catch {
+      return 0;
+    }
+  };
+  return readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => ({ id: e.name, at: stamp(e.name) }))
+    .sort((a, b) => b.at - a.at || (a.id < b.id ? 1 : -1)).map((e) => e.id);
 }
 
 export class Run {

@@ -52,15 +52,17 @@ thin wrappers that point at the skill.
 | `src/core/url.mjs` | Reference validation (http/https/file only, no embedded credentials) |
 | `src/core/redact.mjs` | Redaction of emails, tokens, keys and sensitive query params; prompt-injection screening |
 | `src/core/run.mjs` | Run folders and the event ledger (`run.json`). Every JSON write is redacted |
+| `src/core/version.mjs` | Package version and the user-agent token derived from it |
 | `src/browser/launch.mjs` | Isolated Chromium contexts, stable navigation (network idle, lazy-load scroll, fonts), challenge detection, frozen-animation screenshots |
 | `src/browser/viewports.mjs` | Presets and custom `WxH` viewports |
 | `src/inspection/extract.mjs` | In-page extraction: DOM, styles, tokens, landmarks, forms (no values), assets, breakpoints, repeated patterns, interaction candidates |
-| `src/inspection/inspect.mjs` | Per-viewport orchestration, hover/focus state deltas, aggregate artifacts |
+| `src/inspection/inspect.mjs` | Per-viewport orchestration, scope naming (one run, several routes/components/themes), accessibility outline, hover/focus state deltas, aggregate artifacts |
 | `src/inspection/interact.mjs` | Safe auto-probing, scripted flows, state diffs, safety guards |
 | `src/inspection/crawl.mjs` | Same-origin crawl with robots.txt, sitemap, budget and rate limiting |
 | `src/comparison/image.mjs` | PNG I/O, padding/cropping, pixelmatch diff, nondeterminism mask, region clustering, side-by-side composite |
-| `src/comparison/compare.mjs` | Capture both sides, structural diff (role + label matching), prioritized issues, iterations, threshold gate |
+| `src/comparison/compare.mjs` | Capture both sides (optionally after scripted steps), structural diff (role + label matching), region crops, prioritized issues, iterations, threshold gate |
 | `src/reporting/report.mjs` | `report.md` built only from artifacts that exist |
+| `src/reporting/tokens.mjs` | Named token export: CSS variables or a Tailwind v4 `@theme` |
 | `scripts/lib/installer.mjs` | Platform paths, de-duplication, ledger and hash ownership, backups, runtime install |
 
 ## Design decisions

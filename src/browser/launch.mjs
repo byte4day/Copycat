@@ -1,11 +1,29 @@
 import { CopycatError, EXIT, browserMissing, classifyNavigationError } from '../core/errors.mjs';
+import { USER_AGENT_TOKEN } from '../core/version.mjs';
 
 /** @typedef {import('playwright').Browser} Browser */
 /** @typedef {import('playwright').BrowserContext} BrowserContext */
 /** @typedef {import('playwright').Page} Page */
 /** @typedef {import('./viewports.mjs').Viewport} Viewport */
 
-export const USER_AGENT_SUFFIX = 'Copycat/0.1 (+https://github.com/byte4day/Copycat)';
+export const USER_AGENT_SUFFIX = USER_AGENT_TOKEN;
+
+export const COLOR_SCHEMES = /** @type {const} */ (['light', 'dark']);
+
+/**
+ * Validate a --color-scheme value.
+ * @param {string | undefined} v
+ * @returns {'light' | 'dark'}
+ */
+export function parseColorScheme(v) {
+  if (v === undefined || v === null || v === '') return 'light';
+  const s = String(v).toLowerCase();
+  if (s !== 'light' && s !== 'dark') throw new CopycatError(`--color-scheme must be light or dark, got "${v}"`, EXIT.USAGE);
+  return s;
+}
+
+/** Default user agent per browser, read once instead of once per context. @type {WeakMap<Browser, Promise<string>>} */
+const baseUserAgent = new WeakMap();
 
 /** Lazy import so `copycat scope`/`--help` work without Playwright installed. */
 export async function loadPlaywright() {
@@ -41,10 +59,22 @@ export async function launchBrowser(opts = {}) {
 /**
  * @param {Browser} browser
  * @param {Viewport} vp
- * @param {{ reducedMotion?: boolean }} [opts]
+ * @param {{ reducedMotion?: boolean, colorScheme?: 'light' | 'dark' }} [opts]
  * @returns {Promise<BrowserContext>}
  */
 export async function newContext(browser, vp, opts = {}) {
+  if (!baseUserAgent.has(browser)) {
+    baseUserAgent.set(browser, (async () => {
+      const probe = await browser.newContext();
+      try {
+        const p = await probe.newPage();
+        return await p.evaluate(() => navigator.userAgent);
+      } finally {
+        await probe.close();
+      }
+    })());
+  }
+  const ua = await /** @type {Promise<string>} */ (baseUserAgent.get(browser));
   const context = await browser.newContext({
     viewport: { width: vp.width, height: vp.height },
     deviceScaleFactor: vp.deviceScaleFactor,
@@ -55,14 +85,8 @@ export async function newContext(browser, vp, opts = {}) {
     serviceWorkers: 'block',
     locale: 'en-US',
     timezoneId: 'UTC',
-    colorScheme: 'light',
+    colorScheme: opts.colorScheme ?? 'light',
   });
-  const ua = await (async () => {
-    const p = await context.newPage();
-    const v = await p.evaluate(() => navigator.userAgent);
-    await p.close();
-    return v;
-  })();
   await context.setExtraHTTPHeaders({ 'User-Agent': `${ua} ${USER_AGENT_SUFFIX}` });
   // Never let a reference page open popups or download files.
   context.on('page', (p) => {

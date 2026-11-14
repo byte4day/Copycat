@@ -9,6 +9,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 
  *   /__hang      never responds (timeout tests)
  *   /__status/N  responds with HTTP N
  *   /sitemap.xml generated from the fixture pages
+ *   /__goto?u=URL  302 redirect to URL (redirect tests)
  * @param {string} rootDir
  * @returns {Promise<{ url: string, port: number, close: () => Promise<void> }>}
  */
@@ -25,6 +26,10 @@ export async function serve(rootDir) {
     if (st) {
       res.writeHead(Number(st[1]), { 'content-type': 'text/html' });
       res.end(`<h1>${st[1]}</h1>`);
+      return;
+    }
+    if (u.pathname === '/__goto') {
+      res.writeHead(302, { location: u.searchParams.get('u') ?? '/' }).end();
       return;
     }
     if (u.pathname === '/sitemap.xml') {

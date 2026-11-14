@@ -111,6 +111,13 @@ test('component compare with --selector', async () => {
   const r = await cc(['compare', '--reference', `${site.url}/pricing.html`, '--local', path.join(REBUILD, 'index.html'), '--selector', '.tabs', '--local-selector', '.period', '--viewport', 'desktop', '--run', 'tabs', '--json']);
   assert.equal(r.code, 0, r.stderr);
   const res = JSON.parse(r.stdout);
-  assert.ok(Math.abs(res.results[0].pixel.width - 184) <= 2, String(res.results[0].pixel.width));
+  // The component's width depends on which serif font the machine has (the fixture asks for
+  // Georgia), so assert the isolation itself: both captures are the tab strip, the same size
+  // on both sides, and nowhere near the 1440px page.
+  const px = res.results[0].pixel;
+  assert.ok(px.width >= 120 && px.width <= 260, `component-sized capture, got ${px.width}`);
+  assert.ok(px.height < 80, `tab strip height, got ${px.height}`);
+  assert.ok(Math.abs(px.sizes.reference.width - px.sizes.local.width) <= 2, JSON.stringify(px.sizes));
+  assert.ok(Math.abs(px.sizes.reference.height - px.sizes.local.height) <= 2, JSON.stringify(px.sizes));
   assert.equal(res.results[0].structural.missing.length, 0);
 });

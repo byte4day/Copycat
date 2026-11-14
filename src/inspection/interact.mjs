@@ -62,6 +62,8 @@ function changed(d) {
 export async function probeInteractions(page, run, o) {
   const results = [];
   const seen = new Set();
+  /** @type {Set<string>} */
+  const usedFiles = new Set();
   let probes = 0;
   await run.ensureDir('states');
   for (const c of o.candidates) {
@@ -95,7 +97,11 @@ export async function probeInteractions(page, run, o) {
       const after = await page.evaluate(visibleState, { selector: null });
       entry.observed = diffState(before, after);
       if (changed(entry.observed)) {
-        const file = `states/${o.route}.${o.viewport.name}.${slug(c.name || c.selector).slice(0, 40)}.png`;
+        // Two triggers can share a label ("Learn more"); never let one overwrite the other.
+        const stem = `states/${o.route}.${o.viewport.name}.${slug(c.name || c.selector).slice(0, 40)}`;
+        let file = `${stem}.png`;
+        for (let n = 2; usedFiles.has(file); n++) file = `${stem}-${n}.png`;
+        usedFiles.add(file);
         await stableScreenshot(page, run.path(file), { fullPage: false });
         entry.screenshot = file;
       }
@@ -148,22 +154,56 @@ export function validateSteps(steps) {
 }
 
 /**
+ * The flow label becomes part of a file name inside the run folder, so it
+ * must be a plain name.
+ * @param {string | undefined} label
+ */
+export function validateLabel(label) {
+  const v = label ?? 'reference';
+  if (!/^[\w-][\w.-]{0,39}$/.test(v)) throw new CopycatError(`Invalid --label "${v}"`, EXIT.USAGE, 'Use up to 40 letters, digits, dot, dash or underscore, e.g. --label local.');
+  return v;
+}
+
+/**
+ * Read and validate a steps file. Every problem is a usage error (exit 2)
+ * with the file name, never a stack trace.
+ * @param {string} file
+ * @returns {Promise<Step[]>}
+ */
+export async function loadSteps(file) {
+  let text;
+  try {
+    text = await readFile(file, 'utf8');
+  } catch {
+    throw new CopycatError(`Cannot read steps file: ${file}`, EXIT.USAGE, 'Pass --steps <file.json>; see assets/flow-example.json in the skill for the format.');
+  }
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    throw new CopycatError(`Steps file is not valid JSON: ${file} (${e instanceof Error ? e.message : e})`, EXIT.USAGE);
+  }
+  return validateSteps(data);
+}
+
+/**
  * Run an explicit, user-authored interaction script and record each
  * transition. Used for USER_FLOW mode and for verifying a reconstruction.
  * @param {import('../core/run.mjs').Run} run
- * @param {{ url: URL, steps: Step[] | string, viewports?: string[], timeout?: number, allowSubmit?: boolean, label?: string, strict?: boolean }} o
+ * @param {{ url: URL, steps: Step[] | string, viewports?: string[], timeout?: number, allowSubmit?: boolean, label?: string, strict?: boolean, colorScheme?: 'light' | 'dark', reducedMotion?: boolean }} o
  */
 export async function runSteps(run, o) {
-  const steps = validateSteps(typeof o.steps === 'string' ? JSON.parse(await readFile(o.steps, 'utf8')) : o.steps);
+  const steps = typeof o.steps === 'string' ? await loadSteps(o.steps) : validateSteps(o.steps);
   // --strict applies live-site safety rules even to local references.
   const local = isLocalUrl(o.url) && !o.strict;
-  const label = o.label ?? 'reference';
+  const label = validateLabel(o.label);
+  const viewports = parseViewports(o.viewports ?? []);
   const browser = await launchBrowser();
   const results = [];
   await run.ensureDir('flows');
   try {
-    for (const vp of parseViewports(o.viewports ?? [])) {
-      const context = await newContext(browser, vp);
+    for (const vp of viewports) {
+      const context = await newContext(browser, vp, { colorScheme: o.colorScheme, reducedMotion: o.reducedMotion });
       try {
         const page = await context.newPage();
         await gotoStable(page, o.url.href, { timeout: o.timeout });
@@ -199,7 +239,9 @@ export async function runSteps(run, o) {
   } finally {
     await browser.close();
   }
-  const prev = (await run.readJson('flows.json')) ?? [];
+  // Re-running a flow (after a fix) replaces its earlier results instead of piling up stale rows.
+  const rerun = new Set(viewports.map((v) => v.name));
+  const prev = /** @type {any[]} */ ((await run.readJson('flows.json')) ?? []).filter((r) => !(r.flow === label && rerun.has(r.viewport)));
   await run.writeJson('flows.json', [...prev, ...results]);
   await run.record({ type: 'flow', label, url: redactUrl(o.url.href), steps: steps.length, completed: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length });
   return results;
@@ -209,22 +251,73 @@ export async function runSteps(run, o) {
  * Safety checks before a scripted step touches the page.
  * @param {import('playwright').Page} page @param {Step} s @param {{ local: boolean, allowSubmit: boolean }} o
  */
-async function guardStep(page, s, o) {
-  if (!s.selector) return;
-  const info = await page.locator(s.selector).first().evaluate((el) => ({
-    type: (el.getAttribute('type') || '').toLowerCase(),
-    autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
-    name: (el.getAttribute('name') || '').toLowerCase(),
-    label: (el.getAttribute('aria-label') || /** @type {HTMLElement} */ (el).innerText || '').trim().slice(0, 80),
-    submit: Boolean(el.closest('form')) && (el.getAttribute('type') === 'submit' || (el.tagName === 'BUTTON' && !el.getAttribute('type'))),
-  }), undefined, { timeout: 5000 }).catch(() => null);
-  if (!info) throw new CopycatError(`Selector not found: ${s.selector}`, EXIT.USAGE);
+export async function guardStep(page, s, o) {
+  // Enter (and Space on a button) activates whatever has focus, so a bare
+  // `press` must be judged by the focused element, not waved through.
+  const activates = s.action === 'press' && /^(Enter|NumpadEnter| |Space)$/i.test(String(s.key ?? ''));
+  // `wait` exists to let a late element appear; checking it here would cap the wait at 5 s.
+  if (s.action === 'wait' || s.action === 'screenshot' || s.action === 'scroll' || s.action === 'goto') return;
+  if (!s.selector && !activates) return;
+  /** @param {Element | null} el */
+  const describe = (el) => {
+    if (!el || el === document.body || el === document.documentElement) return null;
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    const tag = el.tagName;
+    const buttonLike = tag === 'BUTTON' || (tag === 'INPUT' && /^(submit|button|image|reset)$/.test(type));
+    const inForm = Boolean(el.closest('form'));
+    return {
+      type,
+      autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
+      name: (el.getAttribute('name') || '').toLowerCase(),
+      // For button-type inputs the value attribute is the visible label, not user data.
+      label: (el.getAttribute('aria-label') || /** @type {HTMLElement} */ (el).innerText || (buttonLike ? el.getAttribute('value') : '') || '').trim().slice(0, 80),
+      submit: inForm && (type === 'submit' || type === 'image' || (tag === 'BUTTON' && !type)),
+      // Enter inside a single-line field submits its form.
+      entersForm: inForm && tag === 'INPUT' && !/^(button|reset|checkbox|radio|file|range|color)$/.test(type),
+      buttonLike,
+    };
+  };
+  const info = s.selector
+    ? await page.locator(s.selector).first().evaluate(describe, undefined, { timeout: 5000 }).catch(() => null)
+    : await page.evaluate(`(${describe})(document.activeElement)`).catch(() => null);
+  if (!info) {
+    if (s.selector) throw new CopycatError(`Selector not found: ${s.selector}`, EXIT.USAGE);
+    return; // nothing focused: the key press cannot activate a control
+  }
   const sensitive = /password|cc-|card|cvc|cvv|iban|ssn|one-time-code/.test(`${info.type} ${info.autocomplete} ${info.name}`);
   if ((s.action === 'fill' || s.action === 'select') && sensitive && !o.local) {
     throw new CopycatError(`Refusing to fill sensitive field ${s.selector} on a non-local reference`, EXIT.BLOCKED, 'Copycat never enters credentials or payment data into third-party pages.');
   }
-  if ((s.action === 'click' || s.action === 'tap' || s.action === 'press') && (info.submit || UNSAFE_LABEL.test(info.label)) && !o.local && !o.allowSubmit) {
-    throw new CopycatError(`Refusing to trigger "${info.label || s.selector}" on a non-local reference`, EXIT.BLOCKED, 'Submitting forms or transactional actions on live sites requires --allow-submit and explicit authorisation.');
+  const pointer = s.action === 'click' || s.action === 'tap';
+  const keySubmits = activates && (info.submit || (info.entersForm && !/^( |Space)$/i.test(String(s.key))) || UNSAFE_LABEL.test(info.label));
+  if (((pointer && (info.submit || UNSAFE_LABEL.test(info.label))) || keySubmits) && !o.local && !o.allowSubmit) {
+    throw new CopycatError(`Refusing to trigger "${info.label || s.selector || `${s.key} on the focused field`}" on a non-local reference`, EXIT.BLOCKED, 'Submitting forms or transactional actions on live sites requires --allow-submit and explicit authorisation.');
+  }
+}
+
+/**
+ * Guard and perform a list of steps on an already-loaded page, without
+ * recording anything. Used by `compare --steps` to bring both sides into the
+ * same state before capture. Throws on the first failing step.
+ * @param {import('playwright').Page} page @param {Step[]} steps
+ * @param {{ url: URL, timeout?: number, allowSubmit?: boolean, strict?: boolean }} o
+ */
+export async function applySteps(page, steps, o) {
+  const local = isLocalUrl(o.url) && !o.strict;
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    try {
+      await guardStep(page, s, { local, allowSubmit: Boolean(o.allowSubmit) });
+      if (s.selector && s.action !== 'wait') await page.locator(s.selector).first().scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+      await performStep(page, s, o.url, o.timeout ?? 15000);
+      await page.waitForTimeout(s.action === 'wait' ? 0 : 300);
+    } catch (e) {
+      if (e instanceof CopycatError) {
+        e.message = `Step ${i + 1} (${s.action}${s.selector ? ` ${s.selector}` : ''}) on ${redactUrl(o.url.href)}: ${e.message}`;
+        throw e;
+      }
+      throw new CopycatError(`Step ${i + 1} (${s.action}${s.selector ? ` ${s.selector}` : ''}) failed on ${redactUrl(o.url.href)}: ${e instanceof Error ? e.message.split('\n')[0] : e}`, EXIT.FAILURE);
+    }
   }
 }
 

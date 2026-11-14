@@ -3,7 +3,7 @@ name: copycat
 description: Inspects authorized websites, applications, screenshots, and UI components to reconstruct their design, responsive layouts, interactions, and user flows in an existing or new codebase. Use when asked to copycat, reproduce, replicate, rebuild, or closely match a UI/UX reference.
 license: MIT
 metadata:
-  version: 0.3.0
+  version: 0.4.0
   homepage: https://github.com/byte4day/Copycat
 ---
 
@@ -41,14 +41,22 @@ around a missing browser by guessing styles.
 |---|---|
 | `plan "<request>"` | Detect mode, component, URLs and viewports from the user's words and flags |
 | `recon <url> "<request>"` | One-shot: plan, crawl if full-site, inspect, probe interactions, write the report |
-| `inspect <url> [--selector css] [--viewport ...] [--interactions]` | Screenshots, DOM, tokens, components, hover/focus states |
+| `inspect <url> [--selector css] [--viewport ...] [--interactions]` | Screenshots, DOM, accessibility outline, tokens, components, hover/focus states |
 | `crawl <url> --max-pages N` | Same-origin route inventory that respects robots.txt and the page budget |
 | `flow <url> --steps steps.json` | Run a scripted journey and record each state transition |
-| `compare --reference <url\|png> --local <url\|file>` | Pixel diff, structural diff, and a prioritized correction list |
-| `report --run <id>` | Rebuild `report.md` from the artifacts that exist |
+| `compare --reference <url\|png> --local <url\|file>` | Pixel diff, structural diff, zoomed crops of the worst regions, and a prioritized correction list. `--steps` compares a state (open menu, selected tab) |
+| `tokens --run <id> [--format css\|tailwind]` | Measured tokens as named CSS variables or a Tailwind v4 `@theme` block |
+| `report [--run <id>]` | Rebuild `report.md` from the artifacts that exist (latest run when `--run` is omitted) |
+
+`inspect`, `recon`, `flow` and `compare` take `--color-scheme dark` and `--reduced-motion`
+when the reference has a dark theme or motion-reduced styles to match.
 
 All commands write to `.copycat/runs/<run-id>/` in the current project. Pass `--run <id>` to
-add to an existing run. Exit codes: `3` unavailable, `4` timeout, `5` browser missing,
+add to an existing run. The run's top-level files (`design-tokens.json`,
+`component-inventory.json`, `responsive.json`) describe the **first scope inspected in it**.
+Every later scope (another route, a component, a dark pass) writes
+`inspection/<name>.tokens.json` and siblings instead, and `inspect` prints which.
+Exit codes: `2` usage, `3` unavailable, `4` timeout, `5` browser missing,
 `6` blocked (auth, CAPTCHA, or unsafe action), `7` over threshold. Full reference:
 `references/browser-inspection.md`.
 
@@ -83,11 +91,13 @@ the root from `component-inventory.json` (landmarks, repeated patterns, candidat
 Use a todo list. For each stage, load the matching reference before you start it.
 
 1. **Reconnaissance** → `references/browser-inspection.md`. Capture evidence for the
-   requested scope. Read `report.md`, view the reference screenshots, and skim
-   `design-tokens.json`, `component-inventory.json`, `responsive.json` and
-   `interaction-matrix.json`. Record anything you could not observe.
-2. **Design analysis** → `references/design-analysis.md`. Map the measured tokens to the
-   project's token system. Define the layout grid, breakpoints, and the component split.
+   requested scope. Read `report.md`, view the reference screenshots, read the
+   accessibility outline (`inspection/<name>.<viewport>.aria.yml`: the page structure in a
+   few dozen lines), and skim `design-tokens.json`, `component-inventory.json`,
+   `responsive.json` and `interaction-matrix.json`. Record anything you could not observe.
+2. **Design analysis** → `references/design-analysis.md`. Run `tokens` and map the measured
+   values to the project's token system. Define the layout grid, breakpoints, and the
+   component split.
 3. **Interaction analysis** → `references/interactions.md`. For each trigger, record the
    observed result, the reset behavior, and keyboard support. Script `flow` steps for
    journeys. Label anything you did not observe as *inferred*.
@@ -95,8 +105,10 @@ Use a todo list. For each stage, load the matching reference before you start it
    the repo (framework, routing, styling, tests, build). Implement small reusable
    components that follow the project's conventions. Every control must work.
 5. **Visual validation loop** → `references/visual-validation.md`. Serve the local build and
-   run `compare` against each viewport and state. Fix issues in priority order: structure →
-   layout → typography → color → assets → responsive → states → micro-details. Run
+   run `compare` against each viewport, and with `--steps` against each state you built
+   (open menu, dialog, selected tab). Fix issues in priority order: structure → layout →
+   typography → color → assets → responsive → states → micro-details. Open the
+   `region-N.<viewport>.png` crops to see each difference at full size. Run
    `compare --run <same id>` again after each fix. Stop after at most 5 iterations, or when
    the remaining differences are explained (fonts not available, licensed assets,
    nondeterministic content).

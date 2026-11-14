@@ -56,6 +56,22 @@ export function cropTo(img, w, h) {
 }
 
 /**
+ * Cut a rectangle out of an image. The rectangle is clamped to the image, so
+ * callers can pad a region without checking the edges.
+ * @param {Image} img @param {{ x: number, y: number, w: number, h: number }} r
+ * @returns {Image}
+ */
+export function cropRect(img, r) {
+  const x = Math.max(0, Math.min(img.width - 1, Math.floor(r.x)));
+  const y = Math.max(0, Math.min(img.height - 1, Math.floor(r.y)));
+  const w = Math.max(1, Math.min(img.width - x, Math.ceil(r.w)));
+  const h = Math.max(1, Math.min(img.height - y, Math.ceil(r.h)));
+  const data = Buffer.alloc(w * h * 4);
+  for (let row = 0; row < h; row++) img.data.copy(data, row * w * 4, ((y + row) * img.width + x) * 4, ((y + row) * img.width + x + w) * 4);
+  return { width: w, height: h, data };
+}
+
+/**
  * Pixels that differ between two captures of the same reference. These are
  * nondeterministic (animations, carousels, ads, timestamps) and are excluded
  * from the mismatch ratio rather than reported as defects.
